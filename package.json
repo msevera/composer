@@ -1,0 +1,21 @@
+{
+  "name": "snail-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "api",
+    "web"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=api",
+    "dev:web": "npm run dev --workspace=web",
+    "dev": "npm run dev:api & npm run dev:web",
+    "build:api": "npm run build --workspace=api",
+    "build:web": "npm run build --workspace=web",
+    "build": "npm run build:api && npm run build:web"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
+
