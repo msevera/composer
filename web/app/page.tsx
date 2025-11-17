@@ -1,7 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authClient } from '@/lib/better-auth-client';
+
+const buttonBase =
+  'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
+const pillButtonBase =
+  'inline-flex min-w-[6rem] items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition';
 
 export default function Home() {
   const [email, setEmail] = useState('');
@@ -12,93 +17,61 @@ export default function Home() {
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
 
+  const checkGmailConnection = useCallback(async () => {
+    if (!isAuthenticated) {
+      setIsGmailConnected(false);
+      setIsCheckingGmail(false);
+      return;
+    }
+
+    try {
+      setIsCheckingGmail(true);
+      const accounts = await authClient.listAccounts();
+      const googleAccount = accounts.data?.find((account: any) => account.providerId === 'google');
+      setIsGmailConnected(Boolean(googleAccount));
+    } finally {
+      setIsCheckingGmail(false);
+    }
+  }, [isAuthenticated]);
+
   useEffect(() => {
-    // Check if user is already authenticated
-    authClient.getSession()
+    authClient
+      .getSession()
       .then((session) => {
         if (session?.data?.user) {
-          console.log('session', session)
           setIsAuthenticated(true);
-          // Check Gmail connection status
           checkGmailConnection();
         } else if (session?.error) {
-          // 401 or other error means not authenticated - this is normal
           console.log('No active session (user not logged in)');
         }
       })
       .catch((error) => {
-        // Silently fail if session check fails (user not logged in)
-        // 401 is expected when there's no session
         if (error?.status !== 401) {
           console.log('Session check error:', error);
         }
       });
 
-    // Check if we're returning from OAuth callback
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('provider') === 'google' || window.location.pathname.includes('callback')) {
-      // Recheck Gmail connection after OAuth callback
       setTimeout(() => {
         checkGmailConnection();
-        // Clean up URL
         window.history.replaceState({}, '', window.location.pathname);
       }, 1000);
     }
-  }, []);
+  }, [checkGmailConnection]);
 
-  // Re-check Gmail connection when authentication state changes
   useEffect(() => {
     if (isAuthenticated) {
       checkGmailConnection();
     }
-  }, [isAuthenticated]);
-
-  const checkGmailConnection = async () => {
-    if (!isAuthenticated) {
-      setIsGmailConnected(false);
-      return;
-    }
-
-    const accounts = await authClient.listAccounts();
-    const googleAccount = accounts.data?.find((account: any) => account.providerId === 'google');
-    console.log('googleAccount', accounts, googleAccount);
-    if (googleAccount) {
-      setIsGmailConnected(true);
-    } else {
-      setIsGmailConnected(false);
-    }
-  };
+  }, [isAuthenticated, checkGmailConnection]);
 
   const handleConnectGmail = async () => {
     try {
-      const { data } = await authClient.signIn.social({
-        provider: "google",
+      await authClient.signIn.social({
+        provider: 'google',
         callbackURL: 'http://localhost:3000/',
       });
-
-      
-      // // Call Better-Auth API to link Google account
-      // const apiUrl = process.env.NEXT_PUBLIC_BETTER_AUTH_URL || 'http://localhost:4000/api/auth';
-      // const response = await fetch(`${apiUrl}/link-social`, {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //   },
-      //   credentials: 'include',
-      //   body: JSON.stringify({
-      //     provider: 'google',
-      //     callbackURL: window.location.href,
-      //   }),
-      // });
-
-      // const result = await response.json();
-
-      // if (result.url) {
-      //   // Redirect to Google OAuth
-      //   window.location.href = result.url;
-      // } else if (result.error) {
-      //   setMessage(`Error: ${result.error.message || 'Failed to connect Gmail'}`);
-      // }
     } catch (error: any) {
       setMessage(`Error: ${error.message}`);
     }
@@ -106,7 +79,7 @@ export default function Home() {
 
   const handleDisconnectGmail = async () => {
     await authClient.unlinkAccount({
-      providerId: "google"
+      providerId: 'google',
     });
 
     checkGmailConnection();
@@ -118,11 +91,10 @@ export default function Home() {
 
     try {
       if (isSignUp) {
-        // Use Better-Auth client for sign up
         const result = await authClient.signUp.email({
           email,
           password,
-          name: email.split('@')[0], // Use email username as name
+          name: email.split('@')[0],
         });
 
         if (result.error) {
@@ -132,7 +104,6 @@ export default function Home() {
           setIsAuthenticated(true);
         }
       } else {
-        // Use Better-Auth client for sign in
         const result = await authClient.signIn.email({
           email,
           password,
@@ -160,46 +131,48 @@ export default function Home() {
     }
   };
 
+  const alertClasses = useMemo(() => {
+    if (!message) return '';
+    const isError = message.toLowerCase().includes('error');
+    return isError
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }, [message]);
+
   return (
-    <main style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '2rem' }}>Smail Authentication</h1>
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-4 py-12">
+      <header className="text-center">
+        <h1 className="text-3xl font-semibold text-slate-900">Smail Authentication</h1>
+        <p className="mt-2 text-sm text-slate-600">Sign in, create an account, and connect Gmail securely.</p>
+      </header>
 
       {!isAuthenticated ? (
-        <div>
-          <div style={{ marginBottom: '1rem' }}>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-center justify-center gap-3">
             <button
               onClick={() => setIsSignUp(false)}
-              style={{
-                padding: '0.5rem 1rem',
-                marginRight: '0.5rem',
-                backgroundColor: !isSignUp ? '#0070f3' : '#ccc',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
+              className={`${pillButtonBase} ${
+                !isSignUp
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
             >
               Sign In
             </button>
             <button
               onClick={() => setIsSignUp(true)}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: isSignUp ? '#0070f3' : '#ccc',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
+              className={`${pillButtonBase} ${
+                isSignUp ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
             >
               Sign Up
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div>
-              <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem' }}>
-                Email:
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-medium text-slate-700">
+                Email
               </label>
               <input
                 id="email"
@@ -207,18 +180,13 @@ export default function Home() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  border: '1px solid #ccc',
-                  borderRadius: '4px',
-                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
 
-            <div>
-              <label htmlFor="password" style={{ display: 'block', marginBottom: '0.5rem' }}>
-                Password:
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium text-slate-700">
+                Password
               </label>
               <input
                 id="password"
@@ -226,79 +194,37 @@ export default function Home() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  border: '1px solid #ccc',
-                  borderRadius: '4px',
-                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
 
             <button
               type="submit"
-              style={{
-                padding: '0.75rem',
-                backgroundColor: '#0070f3',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '1rem',
-              }}
+              className={`${buttonBase} w-full bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600`}
             >
               {isSignUp ? 'Sign Up' : 'Sign In'}
             </button>
           </form>
 
           {message && (
-            <div
-              style={{
-                marginTop: '1rem',
-                padding: '1rem',
-                backgroundColor: message.includes('Error') ? '#fee' : '#efe',
-                border: `1px solid ${message.includes('Error') ? '#fcc' : '#cfc'}`,
-                borderRadius: '4px',
-              }}
-            >
-              {message}
-            </div>
+            <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-medium ${alertClasses}`}>{message}</div>
           )}
-        </div>
+        </section>
       ) : (
-        <div>
-          <p style={{ marginBottom: '1rem', fontSize: '1.2rem' }}>
-            You are authenticated! 🎉
-          </p>
+        <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-lg font-semibold text-slate-900">You are authenticated! 🎉</p>
 
           {isCheckingGmail ? (
-            <div
-              style={{
-                padding: '1.5rem',
-                border: '2px solid #ccc',
-                borderRadius: '8px',
-                marginBottom: '1rem',
-                backgroundColor: '#f9f9f9',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ color: '#666' }}>Checking Gmail connection...</p>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+              <p className="text-sm text-slate-600">Checking Gmail connection...</p>
             </div>
           ) : !isGmailConnected ? (
-            <div
-              style={{
-                padding: '1.5rem',
-                border: '2px solid #0070f3',
-                borderRadius: '8px',
-                marginBottom: '1rem',
-                backgroundColor: '#f0f8ff',
-              }}
-            >
-              <h2 style={{ marginBottom: '0.5rem' }}>Connect Your Gmail</h2>
-              <p style={{ marginBottom: '1rem', color: '#666' }}>
-                Connect your Gmail account to:
-              </p>
-              <ul style={{ marginBottom: '1rem', paddingLeft: '1.5rem' }}>
+            <div className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50/80 p-6">
+              <div>
+                <h2 className="text-xl font-semibold text-blue-900">Connect Your Gmail</h2>
+                <p className="mt-1 text-sm text-blue-800">Connect your Gmail account to:</p>
+              </div>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-blue-900">
                 <li>Read and manage your emails</li>
                 <li>Send emails on your behalf</li>
                 <li>Read your calendar events</li>
@@ -306,49 +232,23 @@ export default function Home() {
               </ul>
               <button
                 onClick={handleConnectGmail}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: '#4285f4',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                }}
+                className={`${buttonBase} bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600`}
               >
                 Connect Gmail Account
               </button>
             </div>
           ) : (
-            <div
-              style={{
-                padding: '1.5rem',
-                border: '2px solid #0f9d58',
-                borderRadius: '8px',
-                marginBottom: '1rem',
-                backgroundColor: '#e8f5e9',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '1.5rem' }}>✓</span>
-                <h2 style={{ margin: 0, color: '#0f9d58' }}>Gmail Account Connected</h2>
+            <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <span className="text-2xl">✓</span>
+                <h2 className="text-xl font-semibold">Gmail Account Connected</h2>
               </div>
-              <p style={{ color: '#2e7d32', marginBottom: '1rem' }}>
+              <p className="text-sm text-emerald-800">
                 Your Gmail account is connected. You can now read emails, send emails, and manage your calendar.
               </p>
               <button
                 onClick={handleDisconnectGmail}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: '#dc3545',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                }}
+                className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
               >
                 Disconnect Gmail Account
               </button>
@@ -356,34 +256,16 @@ export default function Home() {
           )}
 
           {message && (
-            <div
-              style={{
-                marginBottom: '1rem',
-                padding: '1rem',
-                backgroundColor: message.includes('Error') ? '#fee' : '#efe',
-                border: `1px solid ${message.includes('Error') ? '#fcc' : '#cfc'}`,
-                borderRadius: '4px',
-              }}
-            >
-              {message}
-            </div>
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${alertClasses}`}>{message}</div>
           )}
 
           <button
             onClick={handleSignOut}
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: '#f33',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '1rem',
-            }}
+            className={`${buttonBase} bg-slate-900 text-white shadow-sm hover:bg-slate-800 focus-visible:outline-slate-900`}
           >
             Sign Out
           </button>
-        </div>
+        </section>
       )}
     </main>
   );

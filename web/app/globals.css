@@ -1,41 +1,24 @@
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-}
-
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
+    color-scheme: light;
   }
-}
 
-a {
-  color: inherit;
-  text-decoration: none;
+  *,
+  *::before,
+  *::after {
+    @apply box-border;
+  }
+
+  body {
+    @apply min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-50 text-slate-900 antialiased;
+  }
+
+  a {
+    @apply text-inherit no-underline;
+  }
 }
 
