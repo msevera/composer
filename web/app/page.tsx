@@ -142,7 +142,7 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-4 py-12">
       <header className="text-center">
-        <h1 className="text-3xl font-semibold text-slate-900">Smail Authentication</h1>
+        <h1 className="text-3xl font-semibold text-slate-900">Snail Authentication</h1>
         <p className="mt-2 text-sm text-slate-600">Sign in, create an account, and connect Gmail securely.</p>
       </header>
 

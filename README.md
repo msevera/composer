@@ -1,4 +1,4 @@
-# Smail Monorepo
+# Snail Monorepo
 
 Monorepo containing API and Web applications.
 
