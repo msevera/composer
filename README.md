@@ -39,7 +39,24 @@ MONGODB_URI=mongodb://localhost:27017/smail
 PORT=4000
 BETTER_AUTH_SECRET=your-secret-key-here
 BETTER_AUTH_URL=http://localhost:4000
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
+
+### Google OAuth Setup
+
+To enable Gmail and Calendar integration:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the following APIs:
+   - Gmail API
+   - Google Calendar API
+4. Create OAuth 2.0 credentials:
+   - Go to "Credentials" → "Create Credentials" → "OAuth client ID"
+   - Application type: "Web application"
+   - Authorized redirect URIs: `http://localhost:4000/api/auth/callback/google`
+5. Copy the Client ID and Client Secret to your `.env` file
 
 ## Web
 

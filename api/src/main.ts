@@ -5,7 +5,10 @@ import { ConfigService } from '@nestjs/config';
 const cookieParser = require('cookie-parser');
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    // Don't worry, the library will automatically re-add the default body parsers.
+    bodyParser: false,
+  });
   
   const configService = app.get(ConfigService);
   const port = configService.get('PORT') || 4000;

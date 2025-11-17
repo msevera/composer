@@ -9,13 +9,18 @@ export default function Home() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [message, setMessage] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isGmailConnected, setIsGmailConnected] = useState(false);
+  const [isCheckingGmail, setIsCheckingGmail] = useState(false);
 
   useEffect(() => {
     // Check if user is already authenticated
     authClient.getSession()
       .then((session) => {
         if (session?.data?.user) {
+          console.log('session', session)
           setIsAuthenticated(true);
+          // Check Gmail connection status
+          checkGmailConnection();
         } else if (session?.error) {
           // 401 or other error means not authenticated - this is normal
           console.log('No active session (user not logged in)');
@@ -28,7 +33,84 @@ export default function Home() {
           console.log('Session check error:', error);
         }
       });
+
+    // Check if we're returning from OAuth callback
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('provider') === 'google' || window.location.pathname.includes('callback')) {
+      // Recheck Gmail connection after OAuth callback
+      setTimeout(() => {
+        checkGmailConnection();
+        // Clean up URL
+        window.history.replaceState({}, '', window.location.pathname);
+      }, 1000);
+    }
   }, []);
+
+  // Re-check Gmail connection when authentication state changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      checkGmailConnection();
+    }
+  }, [isAuthenticated]);
+
+  const checkGmailConnection = async () => {
+    if (!isAuthenticated) {
+      setIsGmailConnected(false);
+      return;
+    }
+
+    const accounts = await authClient.listAccounts();
+    const googleAccount = accounts.data?.find((account: any) => account.providerId === 'google');
+    console.log('googleAccount', accounts, googleAccount);
+    if (googleAccount) {
+      setIsGmailConnected(true);
+    } else {
+      setIsGmailConnected(false);
+    }
+  };
+
+  const handleConnectGmail = async () => {
+    try {
+      const { data } = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: 'http://localhost:3000/',
+      });
+
+      
+      // // Call Better-Auth API to link Google account
+      // const apiUrl = process.env.NEXT_PUBLIC_BETTER_AUTH_URL || 'http://localhost:4000/api/auth';
+      // const response = await fetch(`${apiUrl}/link-social`, {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   credentials: 'include',
+      //   body: JSON.stringify({
+      //     provider: 'google',
+      //     callbackURL: window.location.href,
+      //   }),
+      // });
+
+      // const result = await response.json();
+
+      // if (result.url) {
+      //   // Redirect to Google OAuth
+      //   window.location.href = result.url;
+      // } else if (result.error) {
+      //   setMessage(`Error: ${result.error.message || 'Failed to connect Gmail'}`);
+      // }
+    } catch (error: any) {
+      setMessage(`Error: ${error.message}`);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    await authClient.unlinkAccount({
+      providerId: "google"
+    });
+
+    checkGmailConnection();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,6 +270,105 @@ export default function Home() {
           <p style={{ marginBottom: '1rem', fontSize: '1.2rem' }}>
             You are authenticated! 🎉
           </p>
+
+          {isCheckingGmail ? (
+            <div
+              style={{
+                padding: '1.5rem',
+                border: '2px solid #ccc',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                backgroundColor: '#f9f9f9',
+                textAlign: 'center',
+              }}
+            >
+              <p style={{ color: '#666' }}>Checking Gmail connection...</p>
+            </div>
+          ) : !isGmailConnected ? (
+            <div
+              style={{
+                padding: '1.5rem',
+                border: '2px solid #0070f3',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                backgroundColor: '#f0f8ff',
+              }}
+            >
+              <h2 style={{ marginBottom: '0.5rem' }}>Connect Your Gmail</h2>
+              <p style={{ marginBottom: '1rem', color: '#666' }}>
+                Connect your Gmail account to:
+              </p>
+              <ul style={{ marginBottom: '1rem', paddingLeft: '1.5rem' }}>
+                <li>Read and manage your emails</li>
+                <li>Send emails on your behalf</li>
+                <li>Read your calendar events</li>
+                <li>Create and manage calendar events</li>
+              </ul>
+              <button
+                onClick={handleConnectGmail}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: '#4285f4',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                }}
+              >
+                Connect Gmail Account
+              </button>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '1.5rem',
+                border: '2px solid #0f9d58',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                backgroundColor: '#e8f5e9',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '1.5rem' }}>✓</span>
+                <h2 style={{ margin: 0, color: '#0f9d58' }}>Gmail Account Connected</h2>
+              </div>
+              <p style={{ color: '#2e7d32', marginBottom: '1rem' }}>
+                Your Gmail account is connected. You can now read emails, send emails, and manage your calendar.
+              </p>
+              <button
+                onClick={handleDisconnectGmail}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                }}
+              >
+                Disconnect Gmail Account
+              </button>
+            </div>
+          )}
+
+          {message && (
+            <div
+              style={{
+                marginBottom: '1rem',
+                padding: '1rem',
+                backgroundColor: message.includes('Error') ? '#fee' : '#efe',
+                border: `1px solid ${message.includes('Error') ? '#fcc' : '#cfc'}`,
+                borderRadius: '4px',
+              }}
+            >
+              {message}
+            </div>
+          )}
+
           <button
             onClick={handleSignOut}
             style={{

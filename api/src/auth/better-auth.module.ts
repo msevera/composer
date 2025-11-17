@@ -21,6 +21,30 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
           emailAndPassword: {
             enabled: true,
           },
+          socialProviders: {
+            google: {
+              clientId: configService.get('GOOGLE_CLIENT_ID') || '',
+              clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
+              enabled: true,
+              scope: [
+                'https://www.googleapis.com/auth/gmail.readonly',
+                'https://www.googleapis.com/auth/gmail.send',
+                'https://www.googleapis.com/auth/calendar.readonly',
+                'https://www.googleapis.com/auth/calendar.events',
+                'https://www.googleapis.com/auth/userinfo.email',
+                'https://www.googleapis.com/auth/userinfo.profile',
+              ],
+              accessType: "offline",
+              prompt: "select_account consent",
+            },
+          },
+          account: {
+            accountLinking: {
+              enabled: true,
+              trustedProviders: ["google", "email-password"],
+              allowDifferentEmails: true
+            }
+          },
           secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
           baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
           basePath: '/api/auth',
@@ -28,6 +52,25 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
             'http://localhost:3000',
             'http://localhost:4000',
           ],
+          // Database hooks to intercept account creation and store OAuth tokens
+          databaseHooks: {
+            account: {
+              create: {
+                before: async (account) => {
+                  console.log('Account created in database:', {
+                    accountId: account.id,
+                    providerId: account.providerId,
+                    userId: account.userId,
+                    hasAccessToken: !!account.accessToken,
+                    hasRefreshToken: !!account.refreshToken,
+                    expiresAt: account.accessTokenExpiresAt,
+                  });
+                  // Log the full account object to see what Better-Auth actually stores
+                  console.log('Full account object:', JSON.stringify(account, null, 2));
+                },
+              },
+            },
+          },
         });
 
         return auth;
@@ -37,5 +80,5 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
   ],
   exports: ['BETTER_AUTH'],
 })
-export class BetterAuthModule {}
+export class BetterAuthModule { }
 

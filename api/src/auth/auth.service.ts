@@ -51,8 +51,53 @@ export class AuthService {
 
   async getSession(req: any) {
     try {
-      return await this.auth.api.getSession({ headers: req.headers });
+      // Better-Auth requires the URL to include the basePath (/api/auth)
+      // Get the base URL from the request
+      const protocol = req.protocol || 'http';
+      const host = req.get?.('host') || req.headers.host || 'localhost:4000';
+      const baseURL = `${protocol}://${host}`;
+      
+      // Construct the correct URL with basePath
+      const url = `${baseURL}/api/auth/get-session`;
+      
+      // Convert Express headers to Headers object for Better-Auth
+      const headers = new Headers();
+      Object.keys(req.headers).forEach((key) => {
+        const value = req.headers[key];
+        if (value) {
+          if (Array.isArray(value)) {
+            value.forEach((v) => headers.append(key, v));
+          } else {
+            headers.set(key, value);
+          }
+        }
+      });
+      
+      console.log('Getting session from URL:', url);
+      console.log('Cookies in headers:', headers.get('cookie'));
+      
+      // Create a Request object that Better-Auth expects
+      const fetchRequest = new Request(url, {
+        method: 'GET',
+        headers: headers,
+      });
+      
+      // Call Better-Auth's handler directly for get-session
+      const response = await this.auth.handler(fetchRequest);
+      
+      console.log('Session response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Session data:', data ? 'exists' : 'null');
+        return { data: data };
+      }
+      
+      const errorText = await response.text();
+      console.log('Session response error:', errorText);
+      return null;
     } catch (error) {
+      console.error('Error getting session:', error);
       return null;
     }
   }
