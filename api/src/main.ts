@@ -9,17 +9,39 @@ async function bootstrap() {
     // Don't worry, the library will automatically re-add the default body parsers.
     bodyParser: false,
   });
-  
+
   const configService = app.get(ConfigService);
   const port = configService.get('PORT') || 4000;
-  
+
   // Enable cookie parser for Better-Auth
   app.use(cookieParser());
-  
-  // Enable CORS for Next.js frontend
+
+  const extensionOrigins = (configService.get<string>('CHROME_EXTENSION_ORIGINS') || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const allowedOrigins = new Set<string>([
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://localhost:4000',
+    ...extensionOrigins,
+  ]);
+
   app.enableCors({
-    origin: 'http://localhost:3000',
-    credentials: true,
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.has(origin) || origin.startsWith('chrome-extension://')) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
+    },
+      credentials: true,
   });
 
   await app.listen(port);

@@ -127,3 +127,18 @@ export const INDEX_EMAIL = gql`
   }
 `;
 
+export const CREATE_EMAIL_DRAFT = gql`
+  mutation CreateEmailDraft($input: CreateDraftInput!) {
+    createDraftReply(input: $input) {
+      id
+      messageId
+      threadId
+      subject
+      to
+      cc
+      bcc
+      body
+    }
+  }
+`;
+

@@ -44,7 +44,13 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
     UserModule,
     EmailModule,
     AuthModule.forRootAsync({
-      useFactory: (connection: Connection, configService: ConfigService) => ({
+      useFactory: (connection: Connection, configService: ConfigService) => {
+        const extensionOrigins = (configService.get<string>('CHROME_EXTENSION_ORIGINS') || '')
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter(Boolean);
+
+        return {
         auth: betterAuth({
           database: mongodbAdapter(connection.db as any, {
             usePlural: true,
@@ -60,6 +66,8 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
               scope: [
                 'https://www.googleapis.com/auth/gmail.readonly',
                 'https://www.googleapis.com/auth/gmail.send',
+                  'https://www.googleapis.com/auth/gmail.compose',
+                  'https://www.googleapis.com/auth/gmail.modify',
                 'https://www.googleapis.com/auth/calendar.readonly',
                 'https://www.googleapis.com/auth/calendar.events',
                 'https://www.googleapis.com/auth/userinfo.email',
@@ -82,6 +90,8 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
           trustedOrigins: [
             'http://localhost:3000',
             'http://localhost:4000',
+              'http://localhost:5173',
+              ...extensionOrigins,
           ],
           // Database hooks to intercept account creation and store OAuth tokens
           databaseHooks: {
@@ -101,7 +111,8 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
             },
           },
         }),
-      }),
+        };
+      },
       inject: [getConnectionToken(), ConfigService],
     }),
     GmailModule,

@@ -10,6 +10,7 @@ export class GmailService {
     @Inject(getConnectionToken()) private connection: Connection,
     private configService: ConfigService,
   ) { }
+  private readonly refreshLabelName = this.configService.get('GMAIL_REFRESH_LABEL') || 'SmailTempRefresh';
 
   async getGmailAccount(userId: string): Promise<Record<string, any> | null> {
     const db = this.connection.db;
@@ -103,20 +104,8 @@ export class GmailService {
       updateQuery.$set.refresh_token = data.refresh_token;
     }
 
-    // Try to update with providerId first, then provider field
-    let updateResult = await this.connection.db.collection('accounts').updateOne(
-      { userId: userId.toString(), providerId: 'google' },
-      updateQuery,
-    );
-
-    if (updateResult.matchedCount === 0) {
-      updateResult = await this.connection.db.collection('accounts').updateOne(
-        { userId: userId.toString(), provider: 'google' },
-        updateQuery,
-      );
-    }
-
-    console.log('Token refreshed and saved:', updateResult.modifiedCount > 0);
+    const updated = await this.updateAccountTokens(userId, updateQuery);
+    console.log('Token refreshed and saved:', updated);
 
     return {
       accessToken: data.access_token,
@@ -374,22 +363,26 @@ export class GmailService {
   async disconnectGmail(userId: string): Promise<boolean> {
     const db = this.connection.db;
 
-    // Find and delete the Google account
-    const result = await db.collection('accounts').deleteOne({
-      userId: userId.toString(),
-      providerId: 'google',
-    });
+    const userIdString = userId.toString();
+    const queries: Record<string, any>[] = [
+      { userId: userIdString, providerId: 'google' },
+      { userId: userIdString, provider: 'google' },
+    ];
 
-    // If not found with providerId, try with provider field
-    if (result.deletedCount === 0) {
-      const result2 = await db.collection('accounts').deleteOne({
-        userId: userId.toString(),
-        provider: 'google',
-      });
-      return result2.deletedCount > 0;
+    if (ObjectId.isValid(userIdString)) {
+      const objectId = new ObjectId(userIdString);
+      queries.push({ userId: objectId, providerId: 'google' });
+      queries.push({ userId: objectId, provider: 'google' });
     }
 
-    return result.deletedCount > 0;
+    for (const filter of queries) {
+      const result = await db.collection('accounts').deleteOne(filter);
+      if (result.deletedCount > 0) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -405,7 +398,7 @@ export class GmailService {
     const db = this.connection.db;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const updateQuery = {
+    const updateQuery: any = {
       $set: {
         accessToken: accessToken,
         access_token: accessToken, // Store in both formats
@@ -416,21 +409,211 @@ export class GmailService {
       },
     };
 
-    // Try to update with providerId first
-    let updateResult = await db.collection('accounts').updateOne(
-      { userId: userId.toString(), providerId: 'google' },
-      updateQuery,
-    );
+    const updated = await this.updateAccountTokens(userId, updateQuery);
+    console.log('OAuth tokens stored:', updated);
+    return updated;
+  }
 
-    if (updateResult.matchedCount === 0) {
-      updateResult = await db.collection('accounts').updateOne(
-        { userId: userId.toString(), provider: 'google' },
-        updateQuery,
-      );
+  private async updateAccountTokens(userId: string, update: any): Promise<boolean> {
+    const db = this.connection.db;
+    const userIdString = userId.toString();
+    const filters: Record<string, any>[] = [
+      { userId: userIdString, providerId: 'google' },
+      { userId: userIdString, provider: 'google' },
+    ];
+
+    if (ObjectId.isValid(userIdString)) {
+      const objectId = new ObjectId(userIdString);
+      filters.push({ userId: objectId, providerId: 'google' });
+      filters.push({ userId: objectId, provider: 'google' });
     }
 
-    console.log('OAuth tokens stored:', updateResult.modifiedCount > 0);
-    return updateResult.modifiedCount > 0;
+    if (update.$set?.providerAccountId || update.$set?.providerAccountId === undefined) {
+      filters.push({ providerAccountId: 'google', userId: userIdString });
+    }
+
+    for (const filter of filters) {
+      const result = await db.collection('accounts').updateOne(filter, update);
+      if (result.modifiedCount > 0 || result.matchedCount > 0) {
+        return true;
+      }
+    }
+
+    console.warn('Failed to update Gmail account tokens for user', userId);
+    return false;
+  }
+
+  private async getOrCreateRefreshLabel(accessToken: string): Promise<string | null> {
+    try {
+      const listResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!listResponse.ok) {
+        console.warn('Failed to list Gmail labels');
+        return null;
+      }
+
+      const labels = await listResponse.json();
+      const existing = labels.labels?.find((label: any) => label.name === this.refreshLabelName);
+      if (existing?.id) {
+        return existing.id;
+      }
+
+      const createResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: this.refreshLabelName,
+          labelListVisibility: 'labelHide',
+          messageListVisibility: 'hide',
+        }),
+      });
+
+      if (!createResponse.ok) {
+        console.warn('Failed to create Gmail refresh label');
+        return null;
+      }
+
+      const created = await createResponse.json();
+      return created.id || null;
+    } catch (error) {
+      console.warn('Error ensuring Gmail refresh label:', error);
+      return null;
+    }
+  }
+
+  private async toggleRefreshLabel(accessToken: string, messageId?: string): Promise<void> {
+    if (!messageId) {
+      return;
+    }
+
+    const labelId = await this.getOrCreateRefreshLabel(accessToken);
+    if (!labelId) {
+      return;
+    }
+
+    const modify = async (body: Record<string, any>) => {
+      await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    };
+
+    try {
+      await modify({ addLabelIds: [labelId] });
+      await modify({ removeLabelIds: [labelId] });
+    } catch (error) {
+      console.warn('Failed to toggle refresh label:', error);
+    }
+  }
+
+  private encodeMessage(message: string): string {
+    return Buffer.from(message, 'utf-8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  async createDraftReply(
+    userId: string,
+    params: {
+      threadId: string;
+      inReplyTo: string;
+      references?: string[];
+      subject?: string;
+      body: string;
+      to: string[];
+      cc?: string[];
+      bcc?: string[];
+      from: string;
+    },
+  ): Promise<{
+    id: string;
+    messageId?: string;
+    threadId: string;
+    to: string[];
+    cc: string[];
+    bcc: string[];
+    subject?: string;
+    body?: string;
+  }> {
+    const accessToken = await this.getValidAccessToken(userId);
+
+    const headers: string[] = [
+      `From: ${params.from}`,
+      `To: ${params.to.join(', ')}`,
+    ];
+
+    if (params.cc?.length) {
+      headers.push(`Cc: ${params.cc.join(', ')}`);
+    }
+
+    if (params.bcc?.length) {
+      headers.push(`Bcc: ${params.bcc.join(', ')}`);
+    }
+
+    const subject = params.subject?.trim();
+    if (subject) {
+      headers.push(`Subject: ${subject}`);
+    }
+
+    headers.push(`In-Reply-To: ${params.inReplyTo}`);
+
+    const referenceIds = [params.inReplyTo, ...(params.references || [])].filter(Boolean);
+    if (referenceIds.length) {
+      headers.push(`References: ${referenceIds.join(' ')}`);
+    }
+
+    headers.push(`Date: ${new Date().toUTCString()}`);
+    headers.push('Content-Type: text/plain; charset="UTF-8"');
+    headers.push('');
+
+    const rawMessage = `${headers.join('\r\n')}\r\n${params.body}`;
+    const encodedMessage = this.encodeMessage(rawMessage);
+
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          raw: encodedMessage,
+          threadId: params.threadId,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to create draft:', response.status, errorText);
+      throw new Error(`Failed to create Gmail draft: ${response.status}`);
+    }
+
+    const draft = await response.json();
+    await this.toggleRefreshLabel(accessToken, draft.message?.id);
+    return {
+      id: draft.id,
+      messageId: draft.message?.id,
+      threadId: draft.message?.threadId || params.threadId,
+      to: params.to,
+      cc: params.cc || [],
+      bcc: params.bcc || [],
+      subject,
+      body: params.body,
+    };
   }
 }
 
