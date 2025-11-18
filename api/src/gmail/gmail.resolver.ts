@@ -38,6 +38,8 @@ export class GmailResolver {
         userId: userId.toString(),
         providerId: 'google',
       });
+
+      console.log('account First', account);
       
       // If not found, try with userId as ObjectId or different format
       if (!account) {

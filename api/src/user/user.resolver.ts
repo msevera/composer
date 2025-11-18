@@ -23,6 +23,8 @@ export class UserResolver {
       id: userDoc._id.toString(),
       email: userDoc.email,
       lastSignIn: userDoc.lastSignIn,
+      isEmailIndexingInProgress: userDoc.isEmailIndexingInProgress ?? false,
+      emailIndexingStartedAt: userDoc.emailIndexingStartedAt,
       createdAt: userDoc.createdAt || new Date(),
       updatedAt: userDoc.updatedAt || new Date(),
     };

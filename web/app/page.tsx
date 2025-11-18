@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authClient } from '@/lib/better-auth-client';
+import { useMutation, useQuery } from '@apollo/client';
+import { INDEX_INITIAL_EMAILS, HAS_INITIAL_INDEXING_COMPLETED } from '@/lib/graphql/email-queries';
+import { GET_CURRENT_USER } from '@/lib/graphql/user-queries';
+import { apolloClient } from '@/lib/apollo-client';
+import Link from 'next/link';
 
 const buttonBase =
   'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
@@ -16,6 +21,55 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
+  const [indexingStatus, setIndexingStatus] = useState<string>('');
+
+  const [indexInitialEmails] = useMutation(INDEX_INITIAL_EMAILS, {
+    client: apolloClient,
+  });
+
+  // Get current user with indexing status
+  const { data: userData, refetch: refetchUser, loading: userLoading } = useQuery(
+    GET_CURRENT_USER,
+    {
+      client: apolloClient,
+      skip: !isAuthenticated,
+      fetchPolicy: 'network-only',
+      pollInterval: isAuthenticated && isGmailConnected ? 3000 : 0, // Poll every 3 seconds when authenticated and Gmail connected
+    },
+  );
+
+  // Check if initial indexing has been completed (only when authenticated and Gmail is connected)
+  const { data: indexingStatusData } = useQuery(
+    HAS_INITIAL_INDEXING_COMPLETED,
+    {
+      client: apolloClient,
+      skip: !isAuthenticated || !isGmailConnected,
+      fetchPolicy: 'network-only',
+    },
+  );
+
+  const user = userData?.me;
+  const isEmailIndexingInProgress = user?.isEmailIndexingInProgress ?? false;
+  const hasIndexed = indexingStatusData?.hasInitialIndexingCompleted ?? false;
+
+  const triggerInitialIndexing = useCallback(async () => {
+    // Prevent multiple calls - check backend status
+    if (isEmailIndexingInProgress || hasIndexed) {
+      return;
+    }
+    
+    setIndexingStatus('Queuing indexing job...');
+    try {
+      const result = await indexInitialEmails();
+      setIndexingStatus(result.data?.indexInitialEmails || 'Indexing job queued');
+      // Refetch user to get updated indexing status
+      await refetchUser();
+      setTimeout(() => setIndexingStatus(''), 5000);
+    } catch (error: any) {
+      console.error('Error queuing indexing:', error);
+      setIndexingStatus(`Error: ${error.message}`);
+    }
+  }, [indexInitialEmails, isEmailIndexingInProgress, hasIndexed, refetchUser]);
 
   const checkGmailConnection = useCallback(async () => {
     if (!isAuthenticated) {
@@ -53,12 +107,14 @@ export default function Home() {
 
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('provider') === 'google' || window.location.pathname.includes('callback')) {
-      setTimeout(() => {
-        checkGmailConnection();
+      setTimeout(async () => {
+        await checkGmailConnection();
         window.history.replaceState({}, '', window.location.pathname);
       }, 1000);
     }
   }, [checkGmailConnection]);
+
+  // No automatic indexing - user must click button
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -78,9 +134,37 @@ export default function Home() {
   };
 
   const handleDisconnectGmail = async () => {
-    await authClient.unlinkAccount({
-      providerId: 'google',
-    });
+    try {
+      // Use GraphQL mutation to disconnect
+      const graphqlUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/graphql';
+      const response = await fetch(graphqlUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query: `
+            mutation {
+              disconnectGmail
+            }
+          `,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.errors) {
+        setMessage(`Error: ${result.errors[0].message}`);
+      } else if (result.data?.disconnectGmail) {
+        setMessage('Gmail account disconnected successfully!');
+        setIsGmailConnected(false);
+      } else {
+        setMessage('Failed to disconnect Gmail account');
+      }
+    } catch (error: any) {
+      setMessage(`Error: ${error.message}`);
+    }
 
     checkGmailConnection();
   };
@@ -246,12 +330,57 @@ export default function Home() {
               <p className="text-sm text-emerald-800">
                 Your Gmail account is connected. You can now read emails, send emails, and manage your calendar.
               </p>
-              <button
-                onClick={handleDisconnectGmail}
-                className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
-              >
-                Disconnect Gmail Account
-              </button>
+              
+              {/* Indexing Status Indicator */}
+              {isEmailIndexingInProgress && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-sm text-blue-800">
+                      Indexing your emails... {user?.emailIndexingStartedAt && `(Started ${new Date(user.emailIndexingStartedAt).toLocaleTimeString()})`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Indexing Status Message */}
+              {indexingStatus && !isEmailIndexingInProgress && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm text-emerald-800">{indexingStatus}</p>
+                </div>
+              )}
+
+              {/* Start Indexing Button */}
+              {!hasIndexed && !isEmailIndexingInProgress && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4">
+                  <h3 className="text-lg font-semibold text-blue-900 mb-2">Index Your Emails</h3>
+                  <p className="text-sm text-blue-800 mb-3">
+                    Start indexing your emails from the last day to enable email search and management.
+                  </p>
+                  <button
+                    onClick={triggerInitialIndexing}
+                    disabled={isEmailIndexingInProgress}
+                    className={`${buttonBase} bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600 disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    Start Indexing
+                  </button>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Link
+                  href="/emails"
+                  className={`${buttonBase} bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600`}
+                >
+                  View Emails
+                </Link>
+                <button
+                  onClick={handleDisconnectGmail}
+                  className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
+                >
+                  Disconnect Gmail Account
+                </button>
+              </div>
             </div>
           )}
 

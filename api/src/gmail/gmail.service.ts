@@ -2,31 +2,32 @@ import { Injectable, Inject } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
+import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class GmailService {
   constructor(
     @Inject(getConnectionToken()) private connection: Connection,
     private configService: ConfigService,
-  ) {}
+  ) { }
 
   async getGmailAccount(userId: string): Promise<Record<string, any> | null> {
     const db = this.connection.db;
-    
+
     // Try with userId as string first
     let account = await db.collection('accounts').findOne({
       userId: userId.toString(),
       providerId: 'google',
     });
-    
+
     // If not found, try with userId as-is (might be ObjectId)
     if (!account) {
       account = await db.collection('accounts').findOne({
-        userId: userId,
+        userId: new ObjectId(userId),
         providerId: 'google',
       });
     }
-    
+
     // Also try with 'provider' field (some adapters use this instead of 'providerId')
     if (!account) {
       account = await db.collection('accounts').findOne({
@@ -132,8 +133,8 @@ export class GmailService {
     // Better-Auth might store tokens with different field names (camelCase vs snake_case)
     const accessToken = account.accessToken || account.access_token;
     const refreshToken = account.refreshToken || account.refresh_token;
-    const expiresAt = account.expiresAt 
-      ? new Date(account.expiresAt) 
+    const expiresAt = account.expiresAt
+      ? new Date(account.expiresAt)
       : (account.expires_at ? new Date(account.expires_at) : null);
 
     // If we have an access token, check if it's still valid
@@ -172,11 +173,39 @@ export class GmailService {
     throw new Error('No access token or refresh token available. User needs to reconnect their Gmail account.');
   }
 
-  async getGmailMessages(userId: string, maxResults: number = 10) {
+  /**
+   * List messages with pagination support
+   * @param userId User ID
+   * @param pageToken Optional page token for pagination
+   * @param maxResults Maximum number of results (default: 50)
+   * @param query Optional query string (e.g., "after:2024/01/01")
+   */
+  async listMessages(
+    userId: string,
+    pageToken?: string,
+    maxResults: number = 50,
+    query?: string,
+  ): Promise<{
+    messages: Array<{ id: string; threadId: string }>;
+    nextPageToken?: string;
+    resultSizeEstimate: number;
+  }> {
     const accessToken = await this.getValidAccessToken(userId);
 
+    const params = new URLSearchParams({
+      maxResults: maxResults.toString(),
+    });
+
+    if (pageToken) {
+      params.append('pageToken', pageToken);
+    }
+
+    if (query) {
+      params.append('q', query);
+    }
+
     const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -185,7 +214,131 @@ export class GmailService {
     );
 
     if (!response.ok) {
-      throw new Error('Failed to fetch Gmail messages');
+      const errorText = await response.text();
+      console.error('Failed to list messages:', response.status, errorText);
+      throw new Error(`Failed to list Gmail messages: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get full message content
+   * @param userId User ID
+   * @param messageId Gmail message ID
+   * @param format Message format: 'full', 'metadata', 'minimal', 'raw' (default: 'full')
+   */
+  async getMessage(
+    userId: string,
+    messageId: string,
+    format: 'full' | 'metadata' | 'minimal' | 'raw' = 'full',
+  ): Promise<any> {
+    const accessToken = await this.getValidAccessToken(userId);
+
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=${format}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to get message:', response.status, errorText);
+      throw new Error(`Failed to get Gmail message: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get only message metadata (lightweight)
+   * @param userId User ID
+   * @param messageId Gmail message ID
+   */
+  async getMessageMetadata(userId: string, messageId: string): Promise<any> {
+    return this.getMessage(userId, messageId, 'metadata');
+  }
+
+  /**
+   * Get multiple messages in bulk (parallel requests with concurrency limit)
+   * @param userId User ID
+   * @param messageIds Array of Gmail message IDs
+   * @param format Message format: 'full', 'metadata', 'minimal', 'raw' (default: 'metadata')
+   * @param concurrency Maximum number of parallel requests (default: 10)
+   * @returns Array of message objects, with null for failed requests
+   */
+  async getMessagesBulk(
+    userId: string,
+    messageIds: string[],
+    format: 'full' | 'metadata' | 'minimal' | 'raw' = 'metadata',
+    concurrency: number = 10,
+  ): Promise<Array<any | null>> {
+    const accessToken = await this.getValidAccessToken(userId);
+    const results: Array<any | null> = new Array(messageIds.length).fill(null);
+
+    // Process messages in batches to respect concurrency limit
+    for (let i = 0; i < messageIds.length; i += concurrency) {
+      const batch = messageIds.slice(i, i + concurrency);
+      
+      const batchPromises = batch.map(async (messageId) => {
+        try {
+          const response = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=${format}`,
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+              },
+            },
+          );
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Failed to get message ${messageId}:`, response.status, errorText);
+            return null;
+          }
+
+          return response.json();
+        } catch (error) {
+          console.error(`Error fetching message ${messageId}:`, error);
+          return null;
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Store results in the correct positions
+      batchResults.forEach((result, batchIndex) => {
+        results[i + batchIndex] = result;
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Get all messages in a thread
+   * @param userId User ID
+   * @param threadId Gmail thread ID
+   */
+  async getThread(userId: string, threadId: string): Promise<any> {
+    const accessToken = await this.getValidAccessToken(userId);
+
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to get thread:', response.status, errorText);
+      throw new Error(`Failed to get Gmail thread: ${response.status}`);
     }
 
     return response.json();
@@ -220,13 +373,13 @@ export class GmailService {
 
   async disconnectGmail(userId: string): Promise<boolean> {
     const db = this.connection.db;
-    
+
     // Find and delete the Google account
     const result = await db.collection('accounts').deleteOne({
       userId: userId.toString(),
       providerId: 'google',
     });
-    
+
     // If not found with providerId, try with provider field
     if (result.deletedCount === 0) {
       const result2 = await db.collection('accounts').deleteOne({
@@ -235,7 +388,7 @@ export class GmailService {
       });
       return result2.deletedCount > 0;
     }
-    
+
     return result.deletedCount > 0;
   }
 

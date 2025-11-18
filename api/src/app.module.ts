@@ -3,9 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
+import { BullModule } from '@nestjs/bullmq';
 import { UserModule } from './user/user.module';
 // import { AuthModule } from './auth/auth.module';
 import { GmailModule } from './gmail/gmail.module';
+import { EmailModule } from './email/email.module';
 import { AuthModule } from "@thallesp/nestjs-better-auth";
 import { BetterAuthMiddleware } from './auth/better-auth.middleware';
 import { betterAuth } from 'better-auth';
@@ -22,6 +24,16 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
         uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/smail',
       }),
     }),
+    BullModule.forRootAsync({
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get('REDIS_HOST') || 'localhost',
+          port: configService.get('REDIS_PORT') || 6379,
+          // password: configService.get('REDIS_PASSWORD'),
+        },
+      }),
+      inject: [ConfigService],
+    }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: true,
@@ -30,6 +42,7 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
       context: ({ req, res }) => ({ req, res }),
     }),
     UserModule,
+    EmailModule,
     AuthModule.forRootAsync({
       useFactory: (connection: Connection, configService: ConfigService) => ({
         auth: betterAuth({

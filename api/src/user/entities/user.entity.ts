@@ -12,6 +12,12 @@ export class User {
   lastSignIn?: Date;
 
   @Field()
+  isEmailIndexingInProgress: boolean;
+
+  @Field({ nullable: true })
+  emailIndexingStartedAt?: Date;
+
+  @Field()
   createdAt: Date;
 
   @Field()

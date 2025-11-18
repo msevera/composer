@@ -73,8 +73,8 @@ export class AuthService {
         }
       });
       
-      console.log('Getting session from URL:', url);
-      console.log('Cookies in headers:', headers.get('cookie'));
+      // console.log('Getting session from URL:', url);
+      // console.log('Cookies in headers:', headers.get('cookie'));
       
       // Create a Request object that Better-Auth expects
       const fetchRequest = new Request(url, {
@@ -85,7 +85,7 @@ export class AuthService {
       // Call Better-Auth's handler directly for get-session
       const response = await this.auth.handler(fetchRequest);
       
-      console.log('Session response status:', response.status);
+      //console.log('Session response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();

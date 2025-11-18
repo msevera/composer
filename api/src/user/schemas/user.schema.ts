@@ -8,11 +8,14 @@ export class User {
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: true })
-  password: string;
-
   @Prop()
   lastSignIn?: Date;
+
+  @Prop({ default: false })
+  isEmailIndexingInProgress: boolean;
+
+  @Prop()
+  emailIndexingStartedAt?: Date;
 
   @Prop()
   createdAt?: Date;

@@ -26,13 +26,13 @@ export class AuthGuard implements CanActivate {
       throw new ForbiddenException('Forbidden resource');
     }
 
-    console.log('Getting session, headers:', Object.keys(request.headers || {}));
+    // console.log('Getting session, headers:', Object.keys(request.headers || {}));
     const session = await this.authService.getSession(request);
-    console.log('Session result:', session ? 'exists' : 'null', session?.data ? 'has data' : 'no data', session?.data?.user ? 'has user' : 'no user');
+    // console.log('Session result:', session ? 'exists' : 'null', session?.data ? 'has data' : 'no data', session?.data?.user ? 'has user' : 'no user');
 
     if (session?.data?.user) {
       request.user = session.data.user;
-      console.log('Authentication successful, user ID:', request.user.id);
+      // console.log('Authentication successful, user ID:', request.user.id);
       return true;
     }
 
