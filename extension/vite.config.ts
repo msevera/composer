@@ -12,5 +12,19 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        'universal-injector': path.resolve(__dirname, 'src/content-scripts/universal-injector.ts'),
+      },
+      output: {
+        entryFileNames: (chunkInfo) => {
+          if (chunkInfo.name === 'universal-injector') {
+            return 'content-scripts/[name].js';
+          }
+          return 'assets/[name]-[hash].js';
+        },
+      },
+    },
   },
 });

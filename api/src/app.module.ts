@@ -13,6 +13,9 @@ import { BetterAuthMiddleware } from './auth/better-auth.middleware';
 import { betterAuth } from 'better-auth';
 import { Connection } from 'mongoose';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
+import { IndexingModule } from './indexing/indexing.module';
+import { CompositionModule } from './composition/composition.module';
+import { NotionModule } from './notion/notion.module';
 
 @Module({
   imports: [
@@ -43,6 +46,8 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
     }),
     UserModule,
     EmailModule,
+    IndexingModule,
+    CompositionModule,
     AuthModule.forRootAsync({
       useFactory: (connection: Connection, configService: ConfigService) => {
         const extensionOrigins = (configService.get<string>('CHROME_EXTENSION_ORIGINS') || '')
@@ -51,71 +56,76 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
           .filter(Boolean);
 
         return {
-        auth: betterAuth({
-          database: mongodbAdapter(connection.db as any, {
-            usePlural: true,
-          }),
-          emailAndPassword: {
-            enabled: true,
-          },
-          socialProviders: {
-            google: {
-              clientId: configService.get('GOOGLE_CLIENT_ID') || '',
-              clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
+          auth: betterAuth({
+            database: mongodbAdapter(connection.db as any, {
+              usePlural: true,
+            }),
+            emailAndPassword: {
               enabled: true,
-              scope: [
-                'https://www.googleapis.com/auth/gmail.readonly',
-                'https://www.googleapis.com/auth/gmail.send',
+            },
+            socialProviders: {
+              google: {
+                clientId: configService.get('GOOGLE_CLIENT_ID') || '',
+                clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
+                enabled: true,
+                scope: [
+                  'https://www.googleapis.com/auth/gmail.readonly',
+                  'https://www.googleapis.com/auth/gmail.send',
                   'https://www.googleapis.com/auth/gmail.compose',
                   'https://www.googleapis.com/auth/gmail.modify',
-                'https://www.googleapis.com/auth/calendar.readonly',
-                'https://www.googleapis.com/auth/calendar.events',
-                'https://www.googleapis.com/auth/userinfo.email',
-                'https://www.googleapis.com/auth/userinfo.profile',
-              ],
-              accessType: "offline",
-              prompt: "select_account consent",
+                  'https://www.googleapis.com/auth/calendar.readonly',
+                  'https://www.googleapis.com/auth/calendar.events',
+                  'https://www.googleapis.com/auth/userinfo.email',
+                  'https://www.googleapis.com/auth/userinfo.profile',
+                ],
+                accessType: "offline",
+                prompt: "select_account consent",
+              },
+              notion: {
+                clientId: configService.get('NOTION_CLIENT_ID') || '',
+                clientSecret: configService.get('NOTION_CLIENT_SECRET') || ''
+              },
             },
-          },
-          account: {
-            accountLinking: {
-              enabled: true,
-              trustedProviders: ["google", "email-password"],
-              allowDifferentEmails: true
-            }
-          },
-          secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
-          baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
-          basePath: '/api/auth',
-          trustedOrigins: [
-            'http://localhost:3000',
-            'http://localhost:4000',
+            account: {
+              accountLinking: {
+                enabled: true,
+                trustedProviders: ["google", "email-password"],
+                allowDifferentEmails: true
+              }
+            },
+            secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
+            baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
+            basePath: '/api/auth',
+            trustedOrigins: [
+              'http://localhost:3000',
+              'http://localhost:4000',
               'http://localhost:5173',
               ...extensionOrigins,
-          ],
-          // Database hooks to intercept account creation and store OAuth tokens
-          databaseHooks: {
-            account: {
-              create: {
-                before: async (account) => {
-                  console.log('Account created in database:', {
-                    accountId: account.id,
-                    providerId: account.providerId,
-                    userId: account.userId,
-                    hasAccessToken: !!account.accessToken,
-                    hasRefreshToken: !!account.refreshToken,
-                    expiresAt: account.accessTokenExpiresAt,
-                  });
+            ],
+            // Database hooks to intercept account creation and store OAuth tokens
+            databaseHooks: {
+              account: {
+                create: {
+                  before: async (account) => {
+                    console.log('Account created in database:', {
+                      accountId: account.id,
+                      providerId: account.providerId,
+                      userId: account.userId,
+                      hasAccessToken: !!account.accessToken,
+                      hasRefreshToken: !!account.refreshToken,
+                      expiresAt: account.accessTokenExpiresAt,
+                    });
+                  },
                 },
               },
             },
-          },
-        }),
+          }),
         };
       },
       inject: [getConnectionToken(), ConfigService],
     }),
     GmailModule,
+    NotionModule,
   ],
 })
 export class AppModule { }

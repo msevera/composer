@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authClient } from '@/lib/better-auth-client';
 import { useMutation, useQuery } from '@apollo/client';
-import { INDEX_INITIAL_EMAILS, HAS_INITIAL_INDEXING_COMPLETED } from '@/lib/graphql/email-queries';
-import { GET_CURRENT_USER } from '@/lib/graphql/user-queries';
+import { GET_ALL_INDEXING_STATUSES, START_INDEXING } from '@/lib/graphql/indexing-queries';
 import { apolloClient } from '@/lib/apollo-client';
-import Link from 'next/link';
 
 const buttonBase =
   'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
@@ -21,55 +19,60 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
-  const [indexingStatus, setIndexingStatus] = useState<string>('');
+  const [isNotionConnected, setIsNotionConnected] = useState(false);
+  const [isCheckingNotion, setIsCheckingNotion] = useState(false);
 
-  const [indexInitialEmails] = useMutation(INDEX_INITIAL_EMAILS, {
+  // Fetch indexing statuses
+  const { data: statusData, refetch: refetchStatuses } = useQuery(
+    GET_ALL_INDEXING_STATUSES,
+    {
+      client: apolloClient,
+      skip: !isAuthenticated || (!isGmailConnected && !isNotionConnected),
+      pollInterval: 3000, // Poll every 3 seconds
+      fetchPolicy: 'network-only',
+    }
+  );
+
+  const [startIndexing] = useMutation(START_INDEXING, {
     client: apolloClient,
   });
 
-  // Get current user with indexing status
-  const { data: userData, refetch: refetchUser, loading: userLoading } = useQuery(
-    GET_CURRENT_USER,
-    {
-      client: apolloClient,
-      skip: !isAuthenticated,
-      fetchPolicy: 'network-only',
-      pollInterval: isAuthenticated && isGmailConnected ? 3000 : 0, // Poll every 3 seconds when authenticated and Gmail connected
-    },
-  );
+  const statuses: PlatformStatus[] = statusData?.getAllIndexingStatuses || [];
 
-  // Check if initial indexing has been completed (only when authenticated and Gmail is connected)
-  const { data: indexingStatusData } = useQuery(
-    HAS_INITIAL_INDEXING_COMPLETED,
-    {
-      client: apolloClient,
-      skip: !isAuthenticated || !isGmailConnected,
-      fetchPolicy: 'network-only',
-    },
-  );
-
-  const user = userData?.me;
-  const isEmailIndexingInProgress = user?.isEmailIndexingInProgress ?? false;
-  const hasIndexed = indexingStatusData?.hasInitialIndexingCompleted ?? false;
-
-  const triggerInitialIndexing = useCallback(async () => {
-    // Prevent multiple calls - check backend status
-    if (isEmailIndexingInProgress || hasIndexed) {
-      return;
-    }
-    
-    setIndexingStatus('Queuing indexing job...');
+  const handleStartIndexing = async (platform: string) => {
     try {
-      const result = await indexInitialEmails();
-      setIndexingStatus(result.data?.indexInitialEmails || 'Indexing job queued');
-      // Refetch user to get updated indexing status
-      await refetchUser();
-      setTimeout(() => setIndexingStatus(''), 5000);
+      await startIndexing({ variables: { platform } });
+      await refetchStatuses();
     } catch (error: any) {
-      console.error('Error queuing indexing:', error);
-      setIndexingStatus(`Error: ${error.message}`);
+      console.error(`Error starting ${platform} indexing:`, error);
     }
-  }, [indexInitialEmails, isEmailIndexingInProgress, hasIndexed, refetchUser]);
+  };
+
+  const formatDate = (date?: string) => {
+    if (!date) return 'Never';
+    return new Date(date).toLocaleString();
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+      case 'syncing':
+        return 'text-blue-700 bg-blue-50 border-blue-200';
+      case 'error':
+        return 'text-red-700 bg-red-50 border-red-200';
+      default:
+        return 'text-slate-700 bg-slate-50 border-slate-200';
+    }
+  };
+
+  interface PlatformStatus {
+    platform: string;
+    status: string;
+    totalIndexed: number;
+    lastSyncedAt?: string;
+    errorMessage?: string;
+  }
 
   const checkGmailConnection = useCallback(async () => {
     if (!isAuthenticated) {
@@ -88,6 +91,23 @@ export default function Home() {
     }
   }, [isAuthenticated]);
 
+  const checkNotionConnection = useCallback(async () => {
+    if (!isAuthenticated) {
+      setIsNotionConnected(false);
+      setIsCheckingNotion(false);
+      return;
+    }
+
+    try {
+      setIsCheckingNotion(true);
+      const accounts = await authClient.listAccounts();
+      const notionAccount = accounts.data?.find((account: any) => account.providerId === 'notion');
+      setIsNotionConnected(Boolean(notionAccount));
+    } finally {
+      setIsCheckingNotion(false);
+    }
+  }, [isAuthenticated]);
+
   useEffect(() => {
     authClient
       .getSession()
@@ -95,6 +115,7 @@ export default function Home() {
         if (session?.data?.user) {
           setIsAuthenticated(true);
           checkGmailConnection();
+          checkNotionConnection();
         } else if (session?.error) {
           console.log('No active session (user not logged in)');
         }
@@ -104,23 +125,16 @@ export default function Home() {
           console.log('Session check error:', error);
         }
       });
-
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('provider') === 'google' || window.location.pathname.includes('callback')) {
-      setTimeout(async () => {
-        await checkGmailConnection();
-        window.history.replaceState({}, '', window.location.pathname);
-      }, 1000);
-    }
-  }, [checkGmailConnection]);
+  }, [checkGmailConnection, checkNotionConnection]);
 
   // No automatic indexing - user must click button
 
   useEffect(() => {
     if (isAuthenticated) {
       checkGmailConnection();
+      checkNotionConnection();
     }
-  }, [isAuthenticated, checkGmailConnection]);
+  }, [isAuthenticated, checkGmailConnection, checkNotionConnection]);
 
   const handleConnectGmail = async () => {
     try {
@@ -131,6 +145,33 @@ export default function Home() {
     } catch (error: any) {
       setMessage(`Error: ${error.message}`);
     }
+  };
+
+  const handleConnectNotion = async () => {
+    try {
+      await authClient.signIn.social({
+        provider: 'notion',
+        callbackURL: 'http://localhost:3000/',
+      });
+    } catch (error: any) {
+      setMessage(`Error: ${error.message}`);
+    }
+  };
+
+  const handleDisconnectNotion = async () => {
+    // try {
+    //   const result = await disconnectNotion();
+    //   if (result.data?.disconnectNotion) {
+    //     setMessage('Notion account disconnected successfully!');
+    //     setIsNotionConnected(false);
+    //     await refetchNotion();
+    //   } else {
+    //     setMessage('Failed to disconnect Notion account');
+    //   }
+    // } catch (error: any) {
+    //   setMessage(`Error: ${error.message}`);
+    // }
+    // checkNotionConnection();
   };
 
   const handleDisconnectGmail = async () => {
@@ -226,8 +267,10 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-4 py-12">
       <header className="text-center">
-        <h1 className="text-3xl font-semibold text-slate-900">Snail Authentication</h1>
-        <p className="mt-2 text-sm text-slate-600">Sign in, create an account, and connect Gmail securely.</p>
+        <h1 className="text-3xl font-semibold text-slate-900">Smail Dashboard</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Manage your multi-platform AI email assistant
+        </p>
       </header>
 
       {!isAuthenticated ? (
@@ -235,19 +278,17 @@ export default function Home() {
           <div className="mb-6 flex items-center justify-center gap-3">
             <button
               onClick={() => setIsSignUp(false)}
-              className={`${pillButtonBase} ${
-                !isSignUp
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`${pillButtonBase} ${!isSignUp
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
             >
               Sign In
             </button>
             <button
               onClick={() => setIsSignUp(true)}
-              className={`${pillButtonBase} ${
-                isSignUp ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`${pillButtonBase} ${isSignUp ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
             >
               Sign Up
             </button>
@@ -310,9 +351,7 @@ export default function Home() {
               </div>
               <ul className="list-disc space-y-1 pl-5 text-sm text-blue-900">
                 <li>Read and manage your emails</li>
-                <li>Send emails on your behalf</li>
                 <li>Read your calendar events</li>
-                <li>Create and manage calendar events</li>
               </ul>
               <button
                 onClick={handleConnectGmail}
@@ -330,57 +369,58 @@ export default function Home() {
               <p className="text-sm text-emerald-800">
                 Your Gmail account is connected. You can now read emails, send emails, and manage your calendar.
               </p>
-              
-              {/* Indexing Status Indicator */}
-              {isEmailIndexingInProgress && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="flex items-center gap-2">
-                    <div className="h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-sm text-blue-800">
-                      Indexing your emails... {user?.emailIndexingStartedAt && `(Started ${new Date(user.emailIndexingStartedAt).toLocaleTimeString()})`}
-                    </p>
-                  </div>
-                </div>
-              )}
 
-              {/* Indexing Status Message */}
-              {indexingStatus && !isEmailIndexingInProgress && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p className="text-sm text-emerald-800">{indexingStatus}</p>
-                </div>
-              )}
-
-              {/* Start Indexing Button */}
-              {!hasIndexed && !isEmailIndexingInProgress && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4">
-                  <h3 className="text-lg font-semibold text-blue-900 mb-2">Index Your Emails</h3>
-                  <p className="text-sm text-blue-800 mb-3">
-                    Start indexing your emails from the last day to enable email search and management.
-                  </p>
+              <div className="space-y-3">
+                <div className="flex gap-3">
                   <button
-                    onClick={triggerInitialIndexing}
-                    disabled={isEmailIndexingInProgress}
-                    className={`${buttonBase} bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600 disabled:opacity-50 disabled:cursor-not-allowed`}
+                    onClick={handleDisconnectGmail}
+                    className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
                   >
-                    Start Indexing
+                    Disconnect Gmail Account
                   </button>
                 </div>
-              )}
-
-              <div className="flex gap-3">
-                <Link
-                  href="/emails"
-                  className={`${buttonBase} bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600`}
-                >
-                  View Emails
-                </Link>
-                <button
-                  onClick={handleDisconnectGmail}
-                  className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
-                >
-                  Disconnect Gmail Account
-                </button>
               </div>
+            </div>
+          )}
+
+          {/* Notion Connection Section */}
+          {isCheckingNotion ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+              <p className="text-sm text-slate-600">Checking Notion connection...</p>
+            </div>
+          ) : !isNotionConnected ? (
+            <div className="space-y-4 rounded-2xl border border-purple-200 bg-purple-50/80 p-6">
+              <div>
+                <h2 className="text-xl font-semibold text-purple-900">Connect Your Notion</h2>
+                <p className="mt-1 text-sm text-purple-800">Connect your Notion workspace to:</p>
+              </div>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-purple-900">
+                <li>Index your Notion pages and databases</li>
+                <li>Use Notion content for AI-powered email composition</li>
+                <li>Search across your Notion knowledge base</li>
+              </ul>
+              <button
+                onClick={handleConnectNotion}
+                className={`${buttonBase} bg-purple-600 text-white shadow-sm hover:bg-purple-500 focus-visible:outline-purple-600`}
+              >
+                Connect Notion Workspace
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <span className="text-2xl">✓</span>
+                <h2 className="text-xl font-semibold">Notion Workspace Connected</h2>
+              </div>
+              <p className="text-sm text-emerald-800">
+                Your Notion workspace is connected. You can now index pages and use them for AI-powered composition.
+              </p>
+              <button
+                onClick={handleDisconnectNotion}
+                className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
+              >
+                Disconnect Notion Workspace
+              </button>
             </div>
           )}
 
@@ -394,6 +434,135 @@ export default function Home() {
           >
             Sign Out
           </button>
+        </section>
+      )}
+
+      {isAuthenticated && (isGmailConnected || isNotionConnected) && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-xl font-semibold text-slate-900">
+            Indexing Status
+          </h2>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {/* Gmail Status Card */}
+            {statuses.find((s) => s.platform === 'gmail') && (
+              <div
+                className={`rounded-xl border p-4 ${getStatusColor(
+                  statuses.find((s) => s.platform === 'gmail')?.status || 'idle'
+                )}`}
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Gmail</h3>
+                  <span className="text-sm font-medium">
+                    {statuses.find((s) => s.platform === 'gmail')?.status.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div>
+                    <span className="font-medium">Emails Indexed:</span>{' '}
+                    {statuses.find((s) => s.platform === 'gmail')?.totalIndexed || 0}
+                  </div>
+                  <div>
+                    <span className="font-medium">Last Synced:</span>{' '}
+                    {formatDate(
+                      statuses.find((s) => s.platform === 'gmail')?.lastSyncedAt
+                    )}
+                  </div>
+                </div>
+
+                {statuses.find((s) => s.platform === 'gmail')?.status !== 'syncing' && (
+                  <button
+                    onClick={() => handleStartIndexing('gmail')}
+                    className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
+                  >
+                    {(statuses.find((s) => s.platform === 'gmail')?.totalIndexed || 0) > 0
+                      ? 'Re-index'
+                      : 'Start Indexing'}
+                  </button>
+                )}
+
+                {statuses.find((s) => s.platform === 'gmail')?.status === 'syncing' && (
+                  <div className="mt-4 flex items-center justify-center gap-2">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
+                    <span className="text-sm">Indexing in progress...</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Notion Status Card */}
+            {statuses.find((s) => s.platform === 'notion') ? (
+              <div
+                className={`rounded-xl border p-4 ${getStatusColor(
+                  statuses.find((s) => s.platform === 'notion')?.status || 'idle'
+                )}`}
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Notion</h3>
+                  <span className="text-sm font-medium">
+                    {statuses.find((s) => s.platform === 'notion')?.status.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div>
+                    <span className="font-medium">Pages Indexed:</span>{' '}
+                    {statuses.find((s) => s.platform === 'notion')?.totalIndexed || 0}
+                  </div>
+                  <div>
+                    <span className="font-medium">Last Synced:</span>{' '}
+                    {formatDate(
+                      statuses.find((s) => s.platform === 'notion')?.lastSyncedAt
+                    )}
+                  </div>
+                </div>
+
+                {statuses.find((s) => s.platform === 'notion')?.status !== 'syncing' && (
+                  <button
+                    onClick={() => handleStartIndexing('notion')}
+                    className="mt-4 w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-500"
+                  >
+                    {(statuses.find((s) => s.platform === 'notion')?.totalIndexed || 0) > 0
+                      ? 'Re-index'
+                      : 'Start Indexing'}
+                  </button>
+                )}
+
+                {statuses.find((s) => s.platform === 'notion')?.status === 'syncing' && (
+                  <div className="mt-4 flex items-center justify-center gap-2">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-600 border-t-transparent"></div>
+                    <span className="text-sm">Indexing in progress...</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-600">Notion</h3>
+                  <span className="text-sm font-medium text-slate-500">
+                    {isNotionConnected ? 'NOT CONNECTED' : 'NOT CONNECTED'}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500">
+                  {isNotionConnected
+                    ? 'Connect your Notion workspace above to start indexing.'
+                    : 'Connect your Notion workspace to index pages and databases.'}
+                </p>
+              </div>
+            )}
+
+            {/* Twitter Status Card (placeholder) */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-600">Twitter</h3>
+                <span className="text-sm font-medium text-slate-500">COMING SOON</span>
+              </div>
+              <p className="text-sm text-slate-500">
+                Connect your Twitter account to index tweets and threads.
+              </p>
+            </div>
+          </div>
         </section>
       )}
     </main>

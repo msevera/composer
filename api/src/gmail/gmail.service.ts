@@ -615,5 +615,67 @@ export class GmailService {
       body: params.body,
     };
   }
+
+  /**
+   * Get Gmail profile (includes historyId)
+   * @param userId User ID
+   */
+  async getProfile(userId: string): Promise<{ historyId: string; emailAddress: string }> {
+    const accessToken = await this.getValidAccessToken(userId);
+
+    const response = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/profile',
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to get profile:', response.status, errorText);
+      throw new Error(`Failed to get Gmail profile: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get Gmail history (for incremental sync)
+   * @param userId User ID
+   * @param historyId Gmail history ID
+   * @param maxResults Maximum number of results (default: 100)
+   */
+  async getHistory(
+    userId: string,
+    historyId: string,
+    maxResults: number = 100,
+  ): Promise<any> {
+    const accessToken = await this.getValidAccessToken(userId);
+
+    const params = new URLSearchParams({
+      historyTypes: 'messageAdded,messageDeleted',
+      startHistoryId: historyId,
+      maxResults: maxResults.toString(),
+    });
+
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/history?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to get history:', response.status, errorText);
+      throw new Error(`Failed to get Gmail history: ${response.status}`);
+    }
+
+    return response.json();
+  }
 }
 

@@ -16,7 +16,9 @@
   "host_permissions": [
     "http://localhost:4000/*",
     "https://localhost:4000/*",
-    "https://mail.google.com/*"
+    "https://mail.google.com/*",
+    "https://twitter.com/*",
+    "https://x.com/*"
   ],
   "icons": {
     "16": "icons/icon-16.png",
@@ -25,8 +27,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://mail.google.com/*"],
-      "js": ["gmail-content.js"],
+      "matches": [
+        "https://mail.google.com/*",
+        "https://twitter.com/*",
+        "https://x.com/*"
+      ],
+      "js": ["content-scripts/universal-injector.js"],
       "run_at": "document_idle"
     }
   ],
