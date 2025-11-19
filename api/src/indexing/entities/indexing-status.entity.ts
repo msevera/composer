@@ -3,10 +3,10 @@ import { ObjectType, Field } from '@nestjs/graphql';
 @ObjectType()
 export class PlatformIndexingStatus {
   @Field()
-  platform: string; // 'gmail' | 'notion' | 'twitter'
+  platform: string;
 
   @Field()
-  status: string; // 'idle' | 'syncing' | 'completed' | 'error'
+  status: string;
 
   @Field()
   totalIndexed: number;
@@ -17,10 +17,3 @@ export class PlatformIndexingStatus {
   @Field({ nullable: true })
   errorMessage?: string;
 }
-
-@ObjectType()
-export class IndexingStatus {
-  @Field(() => [PlatformIndexingStatus])
-  platforms: PlatformIndexingStatus[];
-}
-

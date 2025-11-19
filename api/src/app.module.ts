@@ -7,7 +7,6 @@ import { BullModule } from '@nestjs/bullmq';
 import { UserModule } from './user/user.module';
 // import { AuthModule } from './auth/auth.module';
 import { GmailModule } from './gmail/gmail.module';
-import { EmailModule } from './email/email.module';
 import { AuthModule } from "@thallesp/nestjs-better-auth";
 import { BetterAuthMiddleware } from './auth/better-auth.middleware';
 import { betterAuth } from 'better-auth';
@@ -44,8 +43,7 @@ import { NotionModule } from './notion/notion.module';
       playground: true,
       context: ({ req, res }) => ({ req, res }),
     }),
-    UserModule,
-    EmailModule,
+    UserModule,  
     IndexingModule,
     CompositionModule,
     AuthModule.forRootAsync({

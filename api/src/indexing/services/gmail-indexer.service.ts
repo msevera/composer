@@ -17,7 +17,7 @@ export class GmailIndexerService {
   ) {}
 
   /**
-   * Initial bulk indexing (last 7 days of emails)
+   * Initial bulk indexing (last 1 day of emails)
    */
   async indexUserEmails(userId: string): Promise<{ indexed: number; errors: number }> {
     // Update sync state to 'syncing'
@@ -29,7 +29,7 @@ export class GmailIndexerService {
 
     try {
       const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 1);
       const query = `after:${Math.floor(sevenDaysAgo.getTime() / 1000)}`;
 
       let indexed = 0;

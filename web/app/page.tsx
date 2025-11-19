@@ -27,11 +27,12 @@ export default function Home() {
     GET_ALL_INDEXING_STATUSES,
     {
       client: apolloClient,
-      skip: !isAuthenticated || (!isGmailConnected && !isNotionConnected),
-      pollInterval: 3000, // Poll every 3 seconds
+      skip: !isAuthenticated || (!isGmailConnected && !isNotionConnected),      
       fetchPolicy: 'network-only',
     }
   );
+
+  console.log('statusData', statusData)
 
   const [startIndexing] = useMutation(START_INDEXING, {
     client: apolloClient,
@@ -158,56 +159,16 @@ export default function Home() {
     }
   };
 
-  const handleDisconnectNotion = async () => {
-    // try {
-    //   const result = await disconnectNotion();
-    //   if (result.data?.disconnectNotion) {
-    //     setMessage('Notion account disconnected successfully!');
-    //     setIsNotionConnected(false);
-    //     await refetchNotion();
-    //   } else {
-    //     setMessage('Failed to disconnect Notion account');
-    //   }
-    // } catch (error: any) {
-    //   setMessage(`Error: ${error.message}`);
-    // }
-    // checkNotionConnection();
+  const handleDisconnectNotion = async () => {   
+    await authClient.unlinkAccount({ providerId: "notion" });
+    setIsNotionConnected(false);
+    refetchStatuses();
   };
 
   const handleDisconnectGmail = async () => {
-    try {
-      // Use GraphQL mutation to disconnect
-      const graphqlUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/graphql';
-      const response = await fetch(graphqlUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: `
-            mutation {
-              disconnectGmail
-            }
-          `,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.errors) {
-        setMessage(`Error: ${result.errors[0].message}`);
-      } else if (result.data?.disconnectGmail) {
-        setMessage('Gmail account disconnected successfully!');
-        setIsGmailConnected(false);
-      } else {
-        setMessage('Failed to disconnect Gmail account');
-      }
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`);
-    }
-
-    checkGmailConnection();
+    await authClient.unlinkAccount({ providerId: "google" });
+    setIsGmailConnected(false);  
+    refetchStatuses();  
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -445,7 +406,7 @@ export default function Home() {
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {/* Gmail Status Card */}
-            {statuses.find((s) => s.platform === 'gmail') && (
+            {statuses.find((s) => s.platform === 'gmail') ? (
               <div
                 className={`rounded-xl border p-4 ${getStatusColor(
                   statuses.find((s) => s.platform === 'gmail')?.status || 'idle'
@@ -489,7 +450,19 @@ export default function Home() {
                   </div>
                 )}
               </div>
-            )}
+            ) : <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-600">Gmail</h3>
+                <span className="text-sm font-medium text-slate-500">
+                  {isGmailConnected ? 'NOT CONNECTED' : 'NOT CONNECTED'}
+                </span>
+              </div>
+              <p className="text-sm text-slate-500">
+                {isGmailConnected
+                  ? 'Connect your Gmail workspace above to start indexing.'
+                  : 'Connect your Gmail workspace to index pages and databases.'}
+              </p>
+            </div>}
 
             {/* Notion Status Card */}
             {statuses.find((s) => s.platform === 'notion') ? (

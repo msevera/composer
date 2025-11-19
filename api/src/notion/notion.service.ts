@@ -1,34 +1,147 @@
 import { Injectable, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Client } from '@notionhq/client';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
-import { ConfigService } from '@nestjs/config';
 import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class NotionService {
+  private notionClients: Map<string, Client> = new Map();
+
   constructor(
     @Inject(getConnectionToken()) private connection: Connection,
     private configService: ConfigService,
   ) {}
 
+  /**
+   * Get or create Notion client for user
+   */
+  getClient(userId: string, accessToken: string): Client {
+    const key = `${userId}-${accessToken}`;
+    if (!this.notionClients.has(key)) {
+      this.notionClients.set(key, new Client({ auth: accessToken }));
+    }
+    return this.notionClients.get(key)!;
+  }
+
+  /**
+   * Search for all pages
+   */
+  async searchPages(userId: string, accessToken: string, cursor?: string) {
+    const client = this.getClient(userId, accessToken);
+    
+    return await client.search({
+      filter: { property: 'object', value: 'page' },
+      sort: { direction: 'descending', timestamp: 'last_edited_time' },
+      start_cursor: cursor,
+      page_size: 100,
+    });
+  }
+
+  /**
+   * Get page details
+   */
+  async getPage(userId: string, accessToken: string, pageId: string) {
+    const client = this.getClient(userId, accessToken);
+    return await client.pages.retrieve({ page_id: pageId });
+  }
+
+  /**
+   * Get blocks (content) of a page
+   */
+  async getBlocks(userId: string, accessToken: string, blockId: string) {
+    const client = this.getClient(userId, accessToken);
+    
+    const response = await client.blocks.children.list({
+      block_id: blockId,
+      page_size: 100,
+    });
+
+    return response.results;
+  }
+
+  /**
+   * Recursively get all blocks (including nested)
+   */
+  async getAllBlocks(
+    userId: string,
+    accessToken: string,
+    blockId: string,
+  ): Promise<any[]> {
+    const blocks = await this.getBlocks(userId, accessToken, blockId);
+    const allBlocks: any[] = [];
+
+    for (const block of blocks) {
+      allBlocks.push(block);
+
+      // If block has children, recursively fetch them
+      if ((block as any).has_children) {
+        const children = await this.getAllBlocks(userId, accessToken, block.id);
+        allBlocks.push(...children);
+      }
+    }
+
+    return allBlocks;
+  }
+
+  /**
+   * Extract text content from a block
+   */
+  extractBlockText(block: any): string {
+    const blockType = block.type;
+    
+    if (!blockType || !block[blockType]) {
+      return '';
+    }
+
+    const blockData = block[blockType];
+
+    // Handle rich text arrays
+    if (blockData.rich_text && Array.isArray(blockData.rich_text)) {
+      return blockData.rich_text.map((rt: any) => rt.plain_text || '').join('');
+    }
+
+    // Handle specific block types
+    switch (blockType) {
+      case 'paragraph':
+      case 'heading_1':
+      case 'heading_2':
+      case 'heading_3':
+      case 'bulleted_list_item':
+      case 'numbered_list_item':
+      case 'to_do':
+      case 'toggle':
+      case 'quote':
+      case 'callout':
+        return blockData.rich_text?.map((rt: any) => rt.plain_text || '').join('') || '';
+      
+      case 'code':
+        return blockData.rich_text?.map((rt: any) => rt.plain_text || '').join('') || '';
+      
+      default:
+        return '';
+    }
+  }
+
+  /**
+   * Account helpers
+   */
   async getNotionAccount(userId: string): Promise<Record<string, any> | null> {
     const db = this.connection.db;
 
-    // Try with userId as string first
     let account = await db.collection('accounts').findOne({
       userId: userId.toString(),
       providerId: 'notion',
     });
 
-    // If not found, try with userId as-is (might be ObjectId)
-    if (!account) {
+    if (!account && ObjectId.isValid(userId)) {
       account = await db.collection('accounts').findOne({
         userId: new ObjectId(userId),
         providerId: 'notion',
       });
     }
 
-    // Also try with 'provider' field (some adapters use this instead of 'providerId')
     if (!account) {
       account = await db.collection('accounts').findOne({
         userId: userId.toString(),
@@ -39,115 +152,23 @@ export class NotionService {
     return account;
   }
 
-  async refreshNotionToken(userId: string) {
+  async isNotionConnected(userId: string): Promise<boolean> {
     const account = await this.getNotionAccount(userId);
-    if (!account) {
-      throw new Error('Notion account not found');
-    }
-
-    const refreshToken = account.refreshToken || account.refresh_token;
-    if (!refreshToken) {
-      throw new Error('No refresh token available. User needs to re-authenticate.');
-    }
-
-    const clientId = this.configService.get('NOTION_CLIENT_ID');
-    const clientSecret = this.configService.get('NOTION_CLIENT_SECRET');
-
-    if (!clientId || !clientSecret) {
-      throw new Error('Notion OAuth credentials not configured');
-    }
-
-    const response = await fetch('https://api.notion.com/v1/oauth/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-      },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Token refresh failed:', response.status, errorText);
-      throw new Error(`Failed to refresh token: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const expiresAt = new Date(Date.now() + data.expires_in * 1000);
-
-    // Update the account with new access token
-    const updateQuery: any = {
-      $set: {
-        accessToken: data.access_token,
-        access_token: data.access_token,
-        expiresAt: expiresAt,
-        expires_at: expiresAt,
-      },
-    };
-
-    if (data.refresh_token) {
-      updateQuery.$set.refreshToken = data.refresh_token;
-      updateQuery.$set.refresh_token = data.refresh_token;
-    }
-
-    const updated = await this.updateAccountTokens(userId, updateQuery);
-    console.log('Token refreshed and saved:', updated);
-
-    return {
-      accessToken: data.access_token,
-      expiresAt: expiresAt,
-    };
+    return !!account;
   }
 
-  async getValidAccessToken(userId: string): Promise<string> {
+  async getAccessToken(userId: string): Promise<string> {
     const account = await this.getNotionAccount(userId);
     if (!account) {
       throw new Error('Notion account not connected');
     }
 
     const accessToken = account.accessToken || account.access_token;
-    const refreshToken = account.refreshToken || account.refresh_token;
-    const expiresAt = account.expiresAt
-      ? new Date(account.expiresAt)
-      : (account.expires_at ? new Date(account.expires_at) : null);
-
-    // If we have an access token, check if it's still valid
-    if (accessToken) {
-      const now = new Date();
-      const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-
-      // If token is expired or about to expire, refresh it
-      if (!expiresAt || expiresAt < fiveMinutesFromNow) {
-        console.log('Access token expired or expiring soon, refreshing...');
-        try {
-          const refreshed = await this.refreshNotionToken(userId);
-          return refreshed.accessToken;
-        } catch (error) {
-          console.error('Failed to refresh token:', error);
-          throw new Error('Failed to refresh access token. User may need to re-authenticate.');
-        }
-      }
-
-      return accessToken;
+    if (!accessToken) {
+      throw new Error('Notion access token not found');
     }
 
-    // No access token, but we might have a refresh token
-    if (refreshToken) {
-      console.log('No access token found, but refresh token exists. Refreshing...');
-      try {
-        const refreshed = await this.refreshNotionToken(userId);
-        return refreshed.accessToken;
-      } catch (error) {
-        console.error('Failed to refresh token:', error);
-        throw new Error('Failed to obtain access token. User needs to re-authenticate.');
-      }
-    }
-
-    // No access token and no refresh token - user needs to re-authenticate
-    throw new Error('No access token or refresh token available. User needs to reconnect their Notion account.');
+    return accessToken;
   }
 
   async disconnectNotion(userId: string): Promise<boolean> {
@@ -173,53 +194,5 @@ export class NotionService {
     }
 
     return false;
-  }
-
-  async storeOAuthTokens(
-    userId: string,
-    accessToken: string,
-    refreshToken: string,
-    expiresIn: number,
-  ): Promise<boolean> {
-    const db = this.connection.db;
-    const expiresAt = new Date(Date.now() + expiresIn * 1000);
-
-    const userIdString = userId.toString();
-    const updateResult = await db.collection('accounts').updateOne(
-      {
-        userId: userIdString,
-        providerId: 'notion',
-      },
-      {
-        $set: {
-          accessToken,
-          access_token: accessToken,
-          refreshToken,
-          refresh_token: refreshToken,
-          expiresAt,
-          expires_at: expiresAt,
-        },
-      },
-      { upsert: true },
-    );
-
-    return updateResult.acknowledged;
-  }
-
-  private async updateAccountTokens(userId: string, updateQuery: any): Promise<boolean> {
-    const db = this.connection.db;
-    const userIdString = userId.toString();
-
-    const result = await db.collection('accounts').updateOne(
-      {
-        $or: [
-          { userId: userIdString, providerId: 'notion' },
-          { userId: new ObjectId(userIdString), providerId: 'notion' },
-        ],
-      },
-      updateQuery,
-    );
-
-    return result.acknowledged;
   }
 }

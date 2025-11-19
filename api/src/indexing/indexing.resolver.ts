@@ -2,13 +2,18 @@ import { Resolver, Query, Mutation, Context, Args } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { GmailIndexerService } from './services/gmail-indexer.service';
+import { NotionIndexerService } from './services/notion-indexer.service';
 import { PlatformIndexingStatus } from './entities/indexing-status.entity';
+import { GmailService } from '../gmail/gmail.service';
+import { NotionService } from '../notion/notion.service';
 
 @Resolver()
 export class IndexingResolver {
   constructor(
     private gmailIndexerService: GmailIndexerService,
-    // Add other indexers when ready: NotionIndexerService, TwitterIndexerService
+    private notionIndexerService: NotionIndexerService,
+    private gmailService: GmailService,
+    private notionService: NotionService,
   ) {}
 
   /**
@@ -24,8 +29,12 @@ export class IndexingResolver {
     const userId = user.id || user.userId || user._id;
 
     if (platform === 'gmail') {
+      const isConnected = await this.gmailService.isGmailConnected(userId.toString());
+      if (!isConnected) {
+        throw new Error('Gmail account not connected');
+      }
+
       const syncState = await this.gmailIndexerService.getSyncStatus(userId.toString());
-      
       return {
         platform: 'gmail',
         status: syncState?.status || 'idle',
@@ -35,7 +44,22 @@ export class IndexingResolver {
       };
     }
 
-    // Add support for 'notion' and 'twitter' later
+    if (platform === 'notion') {
+      const isConnected = await this.notionService.isNotionConnected(userId.toString());
+      if (!isConnected) {
+        throw new Error('Notion account not connected');
+      }
+
+      const syncState = await this.notionIndexerService.getSyncStatus(userId.toString());
+      return {
+        platform: 'notion',
+        status: syncState?.status || 'idle',
+        totalIndexed: syncState?.totalPagesIndexed || 0,
+        lastSyncedAt: syncState?.lastSyncedAt,
+        errorMessage: syncState?.errorMessage,
+      };
+    }
+
     throw new Error(`Platform '${platform}' not supported`);
   }
 
@@ -48,18 +72,33 @@ export class IndexingResolver {
     const user = context.req.user;
     const userId = user.id || user.userId || user._id;
 
-    const gmailStatus = await this.gmailIndexerService.getSyncStatus(userId.toString());
+    const statuses: PlatformIndexingStatus[] = [];
 
-    return [
-      {
+    const gmailConnected = await this.gmailService.isGmailConnected(userId.toString());
+    if (gmailConnected) {
+      const gmailStatus = await this.gmailIndexerService.getSyncStatus(userId.toString());
+      statuses.push({
         platform: 'gmail',
         status: gmailStatus?.status || 'idle',
         totalIndexed: gmailStatus?.totalEmailsIndexed || 0,
         lastSyncedAt: gmailStatus?.lastSyncedAt,
         errorMessage: gmailStatus?.errorMessage,
-      },
-      // Add Notion and Twitter when ready
-    ];
+      });
+    }
+
+    const notionConnected = await this.notionService.isNotionConnected(userId.toString());
+    if (notionConnected) {
+      const notionStatus = await this.notionIndexerService.getSyncStatus(userId.toString());
+      statuses.push({
+        platform: 'notion',
+        status: notionStatus?.status || 'idle',
+        totalIndexed: notionStatus?.totalPagesIndexed || 0,
+        lastSyncedAt: notionStatus?.lastSyncedAt,
+        errorMessage: notionStatus?.errorMessage,
+      });
+    }
+
+    return statuses;
   }
 
   /**
@@ -75,18 +114,42 @@ export class IndexingResolver {
     const userId = user.id || user.userId || user._id;
 
     if (platform === 'gmail') {
-      // Check if already indexing
+      const isConnected = await this.gmailService.isGmailConnected(userId.toString());
+      if (!isConnected) {
+        throw new Error('Connect Gmail before starting indexing');
+      }
+
       const syncState = await this.gmailIndexerService.getSyncStatus(userId.toString());
       if (syncState?.status === 'syncing') {
         return 'Gmail indexing already in progress';
       }
 
-      // Start indexing (background job)
       this.gmailIndexerService.indexUserEmails(userId.toString()).catch((error) => {
         console.error('Gmail indexing error:', error);
       });
 
       return 'Gmail indexing started';
+    }
+
+    if (platform === 'notion') {
+      const notionConnected = await this.notionService.isNotionConnected(userId.toString());
+      if (!notionConnected) {
+        throw new Error('Notion not connected');
+      }
+
+      const syncState = await this.notionIndexerService.getSyncStatus(userId.toString());
+      if (syncState?.status === 'syncing') {
+        return 'Notion indexing already in progress';
+      }
+
+      const accessToken = await this.notionService.getAccessToken(userId.toString());
+      this.notionIndexerService
+        .indexUserNotion(userId.toString(), accessToken)
+        .catch((error) => {
+          console.error('Notion indexing error:', error);
+        });
+
+      return 'Notion indexing started';
     }
 
     throw new Error(`Platform '${platform}' not supported`);
@@ -105,11 +168,28 @@ export class IndexingResolver {
     const userId = user.id || user.userId || user._id;
 
     if (platform === 'gmail') {
+      const isConnected = await this.gmailService.isGmailConnected(userId.toString());
+      if (!isConnected) {
+        throw new Error('Gmail account not connected');
+      }
       await this.gmailIndexerService.incrementalSync(userId.toString());
       return 'Gmail sync completed';
+    }
+
+    if (platform === 'notion') {
+      const notionConnected = await this.notionService.isNotionConnected(userId.toString());
+      if (!notionConnected) {
+        throw new Error('Notion not connected');
+      }
+
+      const accessToken = await this.notionService.getAccessToken(userId.toString());
+      await this.notionIndexerService.incrementalSync(
+        userId.toString(),
+        accessToken,
+      );
+      return 'Notion sync completed';
     }
 
     throw new Error(`Platform '${platform}' not supported`);
   }
 }
-

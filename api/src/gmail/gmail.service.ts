@@ -47,6 +47,11 @@ export class GmailService {
     return account;
   }
 
+  async isGmailConnected(userId: string): Promise<boolean> {
+    const account = await this.getGmailAccount(userId);
+    return !!account;
+  }
+
   async refreshGoogleToken(userId: string) {
     const account = await this.getGmailAccount(userId);
     if (!account) {

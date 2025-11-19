@@ -2,16 +2,10 @@ import { Resolver, Query, Mutation, Context } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { NotionService } from './notion.service';
-import { getConnectionToken } from '@nestjs/mongoose';
-import { Inject } from '@nestjs/common';
-import { Connection } from 'mongoose';
 
 @Resolver()
 export class NotionResolver {
-  constructor(
-    private notionService: NotionService,
-    @Inject(getConnectionToken()) private connection: Connection,
-  ) {}
+  constructor(private notionService: NotionService) {}
 
   @Query(() => Boolean)
   @UseGuards(AuthGuard)
