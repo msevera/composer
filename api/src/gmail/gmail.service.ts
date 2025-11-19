@@ -35,14 +35,7 @@ export class GmailService {
         userId: userId.toString(),
         provider: 'google',
       });
-    }
-
-    // Log account structure for debugging
-    if (account) {
-      console.log('Account found, fields:', Object.keys(account));
-      console.log('Access token present:', !!(account.accessToken || account.access_token));
-      console.log('Refresh token present:', !!(account.refreshToken || account.refresh_token));
-    }
+    }    
 
     return account;
   }

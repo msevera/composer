@@ -89,7 +89,6 @@ export class AuthService {
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Session data:', data ? 'exists' : 'null');
         return { data: data };
       }
       

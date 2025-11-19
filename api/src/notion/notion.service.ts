@@ -7,7 +7,7 @@ import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class NotionService {
-  private notionClients: Map<string, Client> = new Map();
+  private notionClients: Map<string, { token: string; client: Client }> = new Map();
 
   constructor(
     @Inject(getConnectionToken()) private connection: Connection,
@@ -17,20 +17,25 @@ export class NotionService {
   /**
    * Get or create Notion client for user
    */
-  getClient(userId: string, accessToken: string): Client {
-    const key = `${userId}-${accessToken}`;
-    if (!this.notionClients.has(key)) {
-      this.notionClients.set(key, new Client({ auth: accessToken }));
+  private async getClient(userId: string): Promise<Client> {
+    const accessToken = await this.getAccessToken(userId);
+    const existing = this.notionClients.get(userId);
+
+    if (!existing || existing.token !== accessToken) {
+      const client = new Client({ auth: accessToken });
+      this.notionClients.set(userId, { token: accessToken, client });
+      return client;
     }
-    return this.notionClients.get(key)!;
+
+    return existing.client;
   }
 
   /**
    * Search for all pages
    */
-  async searchPages(userId: string, accessToken: string, cursor?: string) {
-    const client = this.getClient(userId, accessToken);
-    
+  async searchPages(userId: string, cursor?: string) {
+    const client = await this.getClient(userId);
+
     return await client.search({
       filter: { property: 'object', value: 'page' },
       sort: { direction: 'descending', timestamp: 'last_edited_time' },
@@ -42,34 +47,32 @@ export class NotionService {
   /**
    * Get page details
    */
-  async getPage(userId: string, accessToken: string, pageId: string) {
-    const client = this.getClient(userId, accessToken);
+  async getPage(userId: string, pageId: string) {
+    const client = await this.getClient(userId);
     return await client.pages.retrieve({ page_id: pageId });
   }
 
   /**
    * Get blocks (content) of a page
    */
-  async getBlocks(userId: string, accessToken: string, blockId: string) {
-    const client = this.getClient(userId, accessToken);
-    
+  private async getBlocks(client: Client, blockId: string) {
     const response = await client.blocks.children.list({
       block_id: blockId,
       page_size: 100,
     });
-
     return response.results;
   }
 
   /**
    * Recursively get all blocks (including nested)
    */
-  async getAllBlocks(
-    userId: string,
-    accessToken: string,
-    blockId: string,
-  ): Promise<any[]> {
-    const blocks = await this.getBlocks(userId, accessToken, blockId);
+  async getAllBlocks(userId: string, blockId: string): Promise<any[]> {
+    const client = await this.getClient(userId);
+    return this.collectAllBlocks(client, blockId);
+  }
+
+  private async collectAllBlocks(client: Client, blockId: string): Promise<any[]> {
+    const blocks = await this.getBlocks(client, blockId);
     const allBlocks: any[] = [];
 
     for (const block of blocks) {
@@ -77,7 +80,7 @@ export class NotionService {
 
       // If block has children, recursively fetch them
       if ((block as any).has_children) {
-        const children = await this.getAllBlocks(userId, accessToken, block.id);
+        const children = await this.collectAllBlocks(client, block.id);
         allBlocks.push(...children);
       }
     }

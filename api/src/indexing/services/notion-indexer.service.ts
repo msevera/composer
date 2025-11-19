@@ -19,7 +19,7 @@ export class NotionIndexerService {
   /**
    * Initial bulk indexing of Notion pages
    */
-  async indexUserNotion(userId: string, accessToken: string): Promise<{ indexed: number; errors: number }> {
+  async indexUserNotion(userId: string): Promise<{ indexed: number; errors: number }> {
     // Update sync state to 'syncing'
     await this.syncStateModel.findOneAndUpdate(
       { userId },
@@ -34,7 +34,7 @@ export class NotionIndexerService {
       let hasMore = true;
 
       while (hasMore) {
-        const response = await this.notionService.searchPages(userId, accessToken, cursor);
+        const response = await this.notionService.searchPages(userId, cursor);
         
         if (!response.results || response.results.length === 0) {
           break;
@@ -46,7 +46,7 @@ export class NotionIndexerService {
             continue;
           }
           try {
-            await this.indexPage(userId, accessToken, page);
+            await this.indexPage(userId, page);
             indexed++;
           } catch (error) {
             console.error(`Error indexing page ${page.id}:`, error);
@@ -81,7 +81,7 @@ export class NotionIndexerService {
   /**
    * Index a single Notion page with block-boundary chunking
    */
-  private async indexPage(userId: string, accessToken: string, page: PageObjectResponse): Promise<void> {
+  private async indexPage(userId: string, page: PageObjectResponse): Promise<void> {
     const pageId = page.id;
 
     // Check if already indexed
@@ -94,7 +94,7 @@ export class NotionIndexerService {
     const pageTitle = this.extractPageTitle(page);
 
     // Get all blocks (content)
-    const blocks = await this.notionService.getAllBlocks(userId, accessToken, pageId);
+    const blocks = await this.notionService.getAllBlocks(userId, pageId);
 
     if (blocks.length === 0) {
       console.log(`No blocks found for page ${pageId}`);
@@ -268,7 +268,7 @@ export class NotionIndexerService {
   /**
    * Incremental sync (poll for updated pages)
    */
-  async incrementalSync(userId: string, accessToken: string): Promise<void> {
+  async incrementalSync(userId: string): Promise<void> {
     const syncState = await this.syncStateModel.findOne({ userId });
     if (!syncState?.lastSyncedAt) {
       console.log('No previous sync found, skipping incremental sync');
@@ -283,7 +283,7 @@ export class NotionIndexerService {
       let hasMore = true;
 
       while (hasMore) {
-        const response = await this.notionService.searchPages(userId, accessToken, cursor);
+        const response = await this.notionService.searchPages(userId, cursor);
         
         for (const page of response.results) {
           if (!this.isPageObject(page)) {
@@ -296,7 +296,7 @@ export class NotionIndexerService {
             await this.embeddingModel.deleteMany({ userId, pageId: page.id });
             
             // Re-index
-            await this.indexPage(userId, accessToken, page);
+            await this.indexPage(userId, page);
           }
         }
 

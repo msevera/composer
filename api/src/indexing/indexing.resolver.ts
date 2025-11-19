@@ -142,9 +142,8 @@ export class IndexingResolver {
         return 'Notion indexing already in progress';
       }
 
-      const accessToken = await this.notionService.getAccessToken(userId.toString());
       this.notionIndexerService
-        .indexUserNotion(userId.toString(), accessToken)
+        .indexUserNotion(userId.toString())
         .catch((error) => {
           console.error('Notion indexing error:', error);
         });
@@ -182,11 +181,7 @@ export class IndexingResolver {
         throw new Error('Notion not connected');
       }
 
-      const accessToken = await this.notionService.getAccessToken(userId.toString());
-      await this.notionIndexerService.incrementalSync(
-        userId.toString(),
-        accessToken,
-      );
+      await this.notionIndexerService.incrementalSync(userId.toString());
       return 'Notion sync completed';
     }
 

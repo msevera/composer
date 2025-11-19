@@ -1,14 +1,12 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { BullModule } from '@nestjs/bullmq';
 import { UserModule } from './user/user.module';
-// import { AuthModule } from './auth/auth.module';
 import { GmailModule } from './gmail/gmail.module';
 import { AuthModule } from "@thallesp/nestjs-better-auth";
-import { BetterAuthMiddleware } from './auth/better-auth.middleware';
 import { betterAuth } from 'better-auth';
 import { Connection } from 'mongoose';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
@@ -127,9 +125,4 @@ import { NotionModule } from './notion/notion.module';
   ],
 })
 export class AppModule { }
-// export class AppModule implements NestModule {
-//   configure(consumer: MiddlewareConsumer) {
-//     consumer.apply(BetterAuthMiddleware).forRoutes('*');
-//   }
-// }
 
