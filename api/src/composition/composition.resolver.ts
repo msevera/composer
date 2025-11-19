@@ -41,7 +41,7 @@ export class CompositionResolver {
       userId.toString(),
       input.prompt,
       {
-        sources: ['gmail', 'notion'],
+        sources: ['notion'],
         limit: 10,
         filters: input.threadId ? { 'metadata.threadId': input.threadId } : {},
       },

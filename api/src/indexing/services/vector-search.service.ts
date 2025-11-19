@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel, InjectConnection } from '@nestjs/mongoose';
-import { Model, Connection } from 'mongoose';
-import { GmailEmbedding, GmailEmbeddingDocument } from '../schemas/gmail-embedding.schema';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { NotionEmbedding, NotionEmbeddingDocument } from '../schemas/notion-embedding.schema';
 import { TwitterEmbedding, TwitterEmbeddingDocument } from '../schemas/twitter-embedding.schema';
 import { EmbeddingService } from './embedding.service';
@@ -10,11 +9,11 @@ export interface SearchResult {
   content: string;
   metadata: any;
   score: number;
-  source: 'gmail' | 'notion' | 'twitter';
+  source: 'notion' | 'twitter';
 }
 
 export interface SearchOptions {
-  sources?: ('gmail' | 'notion' | 'twitter')[];
+  sources?: ('notion' | 'twitter')[];
   limit?: number;
   filters?: Record<string, any>;
   sourceWeights?: Record<string, number>;
@@ -23,10 +22,8 @@ export interface SearchOptions {
 @Injectable()
 export class VectorSearchService {
   constructor(
-    @InjectModel(GmailEmbedding.name) private gmailEmbeddingModel: Model<GmailEmbeddingDocument>,
     @InjectModel(NotionEmbedding.name) private notionEmbeddingModel: Model<NotionEmbeddingDocument>,
     @InjectModel(TwitterEmbedding.name) private twitterEmbeddingModel: Model<TwitterEmbeddingDocument>,
-    @InjectConnection() private connection: Connection,
     private embeddingService: EmbeddingService,
   ) {}
 
@@ -42,12 +39,9 @@ export class VectorSearchService {
     const queryEmbedding = await this.embeddingService.generateEmbedding(query);
 
     // Determine which sources to search
-    const sources = options.sources || ['gmail', 'notion', 'twitter'];
+    const sources = options.sources || ['notion', 'twitter'];
     const searchPromises: Promise<SearchResult[]>[] = [];
 
-    if (sources.includes('gmail')) {
-      searchPromises.push(this.searchGmail(userId, queryEmbedding, options));
-    }
     if (sources.includes('notion')) {
       searchPromises.push(this.searchNotion(userId, queryEmbedding, options));
     }
@@ -61,45 +55,6 @@ export class VectorSearchService {
 
     // Apply source weights and re-rank
     return this.mergeAndRank(flatResults, options.sourceWeights || {});
-  }
-
-  /**
-   * Search Gmail embeddings
-   */
-  private async searchGmail(
-    userId: string,
-    embedding: number[],
-    options: SearchOptions,
-  ): Promise<SearchResult[]> {
-    // MongoDB Vector Search aggregation
-    const pipeline: any[] = [
-      {
-        $vectorSearch: {
-          index: 'gmail_vector_index',
-          path: 'embedding',
-          queryVector: embedding,
-          numCandidates: 100,
-          limit: options.limit || 20,
-          filter: { userId, ...options.filters },
-        },
-      },
-      {
-        $project: {
-          content: 1,
-          metadata: 1,
-          score: { $meta: 'vectorSearchScore' },
-        },
-      },
-    ];
-
-    const results = await this.gmailEmbeddingModel.aggregate(pipeline);
-
-    return results.map((r) => ({
-      content: r.content,
-      metadata: r.metadata,
-      score: r.score,
-      source: 'gmail' as const,
-    }));
   }
 
   /**

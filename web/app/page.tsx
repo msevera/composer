@@ -85,8 +85,9 @@ const IntegrationCard = ({
   const statusClasses = getStatusColor(normalizedStatus);
   const canConnect = Boolean(onConnect) && !comingSoon;
   const canDisconnect = Boolean(onDisconnect);
-  const showIndexing = isConnected && !comingSoon;
+  const showIndexing = Boolean(isConnected && !comingSoon && metricLabel && onStartIndexing);
   const isSyncing = normalizedStatus === 'syncing';
+  const metricDisplayLabel = metricLabel ?? 'Items indexed';
 
   return (
     <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -147,7 +148,7 @@ const IntegrationCard = ({
 
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-slate-500">{metricLabel}</p>
+              <p className="text-slate-500">{metricDisplayLabel}</p>
               <p className="text-lg font-semibold text-slate-900">{status?.totalIndexed ?? 0}</p>
             </div>
             <div>
@@ -205,7 +206,7 @@ export default function Home() {
     GET_ALL_INDEXING_STATUSES,
     {
       client: apolloClient,
-      skip: !isAuthenticated || (!isGmailConnected && !isNotionConnected),      
+      skip: !isAuthenticated || !isNotionConnected,
       fetchPolicy: 'network-only',
     }
   );
@@ -327,7 +328,9 @@ export default function Home() {
   const handleDisconnectGmail = async () => {
     await authClient.unlinkAccount({ providerId: "google" });
     setIsGmailConnected(false);  
-    refetchStatuses();  
+    if (isNotionConnected) {
+      await refetchStatuses();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -388,11 +391,11 @@ export default function Home() {
     {
       id: 'gmail',
       name: 'Gmail',
-      description: 'Connect Gmail so Smail can index email threads, drafts, and calendar context.',
+      description: 'Use Gmail OAuth to sign in to Smail and unlock upcoming Gmail-aware workflows.',
       features: [
-        'Index emails, threads, and attachments',
-        'Sync calendar events for availability',
-        'Draft AI-powered replies with context',
+        'Authenticate with your Google account in one click',
+        'Securely manage Gmail access tokens via Better Auth',
+        'Stay ready for future Gmail-powered automations',
       ],
       isConnected: isGmailConnected,
       isChecking: isCheckingGmail,
@@ -402,7 +405,6 @@ export default function Home() {
       disconnectLabel: 'Disconnect Gmail Account',
       onConnect: handleConnectGmail,
       onDisconnect: handleDisconnectGmail,
-      metricLabel: 'Emails indexed',
     },
     {
       id: 'notion',
@@ -525,7 +527,7 @@ export default function Home() {
                 key={card.id}
                 {...card}
                 status={statusByPlatform[card.id]}
-                onStartIndexing={handleStartIndexing}
+                onStartIndexing={card.id === 'notion' ? handleStartIndexing : undefined}
               />
             ))}
           </div>
