@@ -11,6 +11,184 @@ const buttonBase =
 const pillButtonBase =
   'inline-flex min-w-[6rem] items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition';
 
+interface PlatformStatus {
+  platform: string;
+  status: string;
+  totalIndexed: number;
+  lastSyncedAt?: string;
+  errorMessage?: string;
+}
+
+const formatDate = (date?: string) => {
+  if (!date) return 'Never';
+  return new Date(date).toLocaleString();
+};
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    case 'syncing':
+      return 'text-blue-700 bg-blue-50 border-blue-200';
+    case 'error':
+      return 'text-red-700 bg-red-50 border-red-200';
+    default:
+      return 'text-slate-700 bg-slate-50 border-slate-200';
+  }
+};
+
+type IntegrationCardProps = {
+  id: string;
+  name: string;
+  description: string;
+  features: string[];
+  isConnected: boolean;
+  isChecking: boolean;
+  connectLabel: string;
+  connectButtonClasses: string;
+  onConnect?: () => void | Promise<void>;
+  disconnectLabel?: string;
+  onDisconnect?: () => void | Promise<void>;
+  metricLabel?: string;
+  status?: PlatformStatus;
+  comingSoon?: boolean;
+  onStartIndexing?: (platform: string) => void;
+};
+
+const IntegrationCard = ({
+  id,
+  name,
+  description,
+  features,
+  isConnected,
+  isChecking,
+  connectLabel,
+  connectButtonClasses,
+  onConnect,
+  disconnectLabel,
+  onDisconnect,
+  metricLabel,
+  status,
+  comingSoon,
+  onStartIndexing,
+}: IntegrationCardProps) => {
+  if (isChecking) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center shadow-sm">
+        <p className="text-sm text-slate-600">Checking {name} connection...</p>
+      </div>
+    );
+  }
+
+  const normalizedStatus = status?.status ?? 'idle';
+  const statusLabel = normalizedStatus.toUpperCase();
+  const statusClasses = getStatusColor(normalizedStatus);
+  const canConnect = Boolean(onConnect) && !comingSoon;
+  const canDisconnect = Boolean(onDisconnect);
+  const showIndexing = isConnected && !comingSoon;
+  const isSyncing = normalizedStatus === 'syncing';
+
+  return (
+    <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {isConnected ? 'Connected' : comingSoon ? 'Coming Soon' : 'Not Connected'}
+          </p>
+          <h3 className="text-xl font-semibold text-slate-900">{name}</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {comingSoon && (
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
+              Coming soon
+            </span>
+          )}
+          {isConnected && canDisconnect && (
+            <button
+              onClick={onDisconnect}
+              className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
+            >
+              {disconnectLabel ?? 'Disconnect'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!isConnected && (
+        <>
+          <p className="mt-3 text-sm text-slate-600">{description}</p>
+
+          <ul className="mt-4 space-y-1 text-sm text-slate-600">
+            {features.map((feature) => (
+              <li key={feature} className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-300" />
+                <span>{feature}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {showIndexing && (
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Indexing status</p>
+              <p className="text-xs text-slate-500">
+                {status?.lastSyncedAt ? `Last synced ${formatDate(status.lastSyncedAt)}` : 'Not synced yet'}
+              </p>
+            </div>
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${statusClasses}`}
+            >
+              {statusLabel}
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-slate-500">{metricLabel}</p>
+              <p className="text-lg font-semibold text-slate-900">{status?.totalIndexed ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Last synced</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {status?.lastSyncedAt ? formatDate(status.lastSyncedAt) : 'Never'}
+              </p>
+            </div>
+          </div>
+
+          {isSyncing ? (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-600">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+              Indexing in progress...
+            </div>
+          ) : (
+            <button
+              onClick={() => onStartIndexing?.(id)}
+              className={`${buttonBase} mt-4 w-full bg-slate-900 text-white shadow-sm hover:bg-slate-800 focus-visible:outline-slate-900`}
+            >
+              {(status?.totalIndexed ?? 0) > 0 ? 'Re-index' : 'Start Indexing'}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-auto flex flex-col gap-3 pt-6">
+        {!isConnected && (
+          <button
+            onClick={canConnect ? onConnect : undefined}
+            disabled={!canConnect}
+            className={`${buttonBase} w-full ${canConnect ? connectButtonClasses : 'cursor-not-allowed bg-slate-200 text-slate-500'}`}
+          >
+            {connectLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +218,13 @@ export default function Home() {
 
   const statuses: PlatformStatus[] = statusData?.getAllIndexingStatuses || [];
 
+  const statusByPlatform = useMemo(() => {
+    return statuses.reduce<Record<string, PlatformStatus>>((acc, status) => {
+      acc[status.platform] = status;
+      return acc;
+    }, {});
+  }, [statuses]);
+
   const handleStartIndexing = async (platform: string) => {
     try {
       await startIndexing({ variables: { platform } });
@@ -48,32 +233,6 @@ export default function Home() {
       console.error(`Error starting ${platform} indexing:`, error);
     }
   };
-
-  const formatDate = (date?: string) => {
-    if (!date) return 'Never';
-    return new Date(date).toLocaleString();
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'text-emerald-700 bg-emerald-50 border-emerald-200';
-      case 'syncing':
-        return 'text-blue-700 bg-blue-50 border-blue-200';
-      case 'error':
-        return 'text-red-700 bg-red-50 border-red-200';
-      default:
-        return 'text-slate-700 bg-slate-50 border-slate-200';
-    }
-  };
-
-  interface PlatformStatus {
-    platform: string;
-    status: string;
-    totalIndexed: number;
-    lastSyncedAt?: string;
-    errorMessage?: string;
-  }
 
   const checkGmailConnection = useCallback(async () => {
     if (!isAuthenticated) {
@@ -225,6 +384,63 @@ export default function Home() {
       : 'border-emerald-200 bg-emerald-50 text-emerald-700';
   }, [message]);
 
+  const integrationCards: IntegrationCardProps[] = [
+    {
+      id: 'gmail',
+      name: 'Gmail',
+      description: 'Connect Gmail so Smail can index email threads, drafts, and calendar context.',
+      features: [
+        'Index emails, threads, and attachments',
+        'Sync calendar events for availability',
+        'Draft AI-powered replies with context',
+      ],
+      isConnected: isGmailConnected,
+      isChecking: isCheckingGmail,
+      connectLabel: 'Connect Gmail Account',
+      connectButtonClasses:
+        'bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600',
+      disconnectLabel: 'Disconnect Gmail Account',
+      onConnect: handleConnectGmail,
+      onDisconnect: handleDisconnectGmail,
+      metricLabel: 'Emails indexed',
+    },
+    {
+      id: 'notion',
+      name: 'Notion',
+      description: 'Bring your Notion docs into Smail to ground email replies in your knowledge base.',
+      features: [
+        'Index pages and databases automatically',
+        'Search Notion content during composition',
+        'Blend workspace knowledge into replies',
+      ],
+      isConnected: isNotionConnected,
+      isChecking: isCheckingNotion,
+      connectLabel: 'Connect Notion Workspace',
+      connectButtonClasses:
+        'bg-purple-600 text-white shadow-sm hover:bg-purple-500 focus-visible:outline-purple-600',
+      disconnectLabel: 'Disconnect Notion Workspace',
+      onConnect: handleConnectNotion,
+      onDisconnect: handleDisconnectNotion,
+      metricLabel: 'Pages indexed',
+    },
+    {
+      id: 'twitter',
+      name: 'Twitter',
+      description: 'Soon you will be able to mirror tweets and threads to inform AI replies.',
+      features: [
+        'Index tweets and threads (coming soon)',
+        'Reference social context in replies',
+        'Centralize public persona insights',
+      ],
+      isConnected: false,
+      isChecking: false,
+      connectLabel: 'Twitter integration coming soon',
+      connectButtonClasses: 'bg-slate-200 text-slate-500',
+      metricLabel: undefined,
+      comingSoon: true,
+    },
+  ];
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-4 py-12">
       <header className="text-center">
@@ -297,93 +513,22 @@ export default function Home() {
           )}
         </section>
       ) : (
-        <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-lg font-semibold text-slate-900">You are authenticated! 🎉</p>
+        <section className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div>
+            <p className="text-lg font-semibold text-slate-900">You are authenticated! 🎉</p>
+            <p className="mt-1 text-sm text-slate-600">Link your data sources to unlock indexing and AI workflows.</p>
+          </div>
 
-          {isCheckingGmail ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-600">Checking Gmail connection...</p>
-            </div>
-          ) : !isGmailConnected ? (
-            <div className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50/80 p-6">
-              <div>
-                <h2 className="text-xl font-semibold text-blue-900">Connect Your Gmail</h2>
-                <p className="mt-1 text-sm text-blue-800">Connect your Gmail account to:</p>
-              </div>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-blue-900">
-                <li>Read and manage your emails</li>
-                <li>Read your calendar events</li>
-              </ul>
-              <button
-                onClick={handleConnectGmail}
-                className={`${buttonBase} bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:outline-blue-600`}
-              >
-                Connect Gmail Account
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6">
-              <div className="flex items-center gap-2 text-emerald-700">
-                <span className="text-2xl">✓</span>
-                <h2 className="text-xl font-semibold">Gmail Account Connected</h2>
-              </div>
-              <p className="text-sm text-emerald-800">
-                Your Gmail account is connected. You can now read emails, send emails, and manage your calendar.
-              </p>
-
-              <div className="space-y-3">
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleDisconnectGmail}
-                    className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
-                  >
-                    Disconnect Gmail Account
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Notion Connection Section */}
-          {isCheckingNotion ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-600">Checking Notion connection...</p>
-            </div>
-          ) : !isNotionConnected ? (
-            <div className="space-y-4 rounded-2xl border border-purple-200 bg-purple-50/80 p-6">
-              <div>
-                <h2 className="text-xl font-semibold text-purple-900">Connect Your Notion</h2>
-                <p className="mt-1 text-sm text-purple-800">Connect your Notion workspace to:</p>
-              </div>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-purple-900">
-                <li>Index your Notion pages and databases</li>
-                <li>Use Notion content for AI-powered email composition</li>
-                <li>Search across your Notion knowledge base</li>
-              </ul>
-              <button
-                onClick={handleConnectNotion}
-                className={`${buttonBase} bg-purple-600 text-white shadow-sm hover:bg-purple-500 focus-visible:outline-purple-600`}
-              >
-                Connect Notion Workspace
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6">
-              <div className="flex items-center gap-2 text-emerald-700">
-                <span className="text-2xl">✓</span>
-                <h2 className="text-xl font-semibold">Notion Workspace Connected</h2>
-              </div>
-              <p className="text-sm text-emerald-800">
-                Your Notion workspace is connected. You can now index pages and use them for AI-powered composition.
-              </p>
-              <button
-                onClick={handleDisconnectNotion}
-                className={`${buttonBase} bg-rose-600 text-white shadow-sm hover:bg-rose-500 focus-visible:outline-rose-600`}
-              >
-                Disconnect Notion Workspace
-              </button>
-            </div>
-          )}
+          <div className="flex flex-col gap-4">
+            {integrationCards.map((card) => (
+              <IntegrationCard
+                key={card.id}
+                {...card}
+                status={statusByPlatform[card.id]}
+                onStartIndexing={handleStartIndexing}
+              />
+            ))}
+          </div>
 
           {message && (
             <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${alertClasses}`}>{message}</div>
@@ -395,147 +540,6 @@ export default function Home() {
           >
             Sign Out
           </button>
-        </section>
-      )}
-
-      {isAuthenticated && (isGmailConnected || isNotionConnected) && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold text-slate-900">
-            Indexing Status
-          </h2>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {/* Gmail Status Card */}
-            {statuses.find((s) => s.platform === 'gmail') ? (
-              <div
-                className={`rounded-xl border p-4 ${getStatusColor(
-                  statuses.find((s) => s.platform === 'gmail')?.status || 'idle'
-                )}`}
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Gmail</h3>
-                  <span className="text-sm font-medium">
-                    {statuses.find((s) => s.platform === 'gmail')?.status.toUpperCase()}
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <div>
-                    <span className="font-medium">Emails Indexed:</span>{' '}
-                    {statuses.find((s) => s.platform === 'gmail')?.totalIndexed || 0}
-                  </div>
-                  <div>
-                    <span className="font-medium">Last Synced:</span>{' '}
-                    {formatDate(
-                      statuses.find((s) => s.platform === 'gmail')?.lastSyncedAt
-                    )}
-                  </div>
-                </div>
-
-                {statuses.find((s) => s.platform === 'gmail')?.status !== 'syncing' && (
-                  <button
-                    onClick={() => handleStartIndexing('gmail')}
-                    className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
-                  >
-                    {(statuses.find((s) => s.platform === 'gmail')?.totalIndexed || 0) > 0
-                      ? 'Re-index'
-                      : 'Start Indexing'}
-                  </button>
-                )}
-
-                {statuses.find((s) => s.platform === 'gmail')?.status === 'syncing' && (
-                  <div className="mt-4 flex items-center justify-center gap-2">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
-                    <span className="text-sm">Indexing in progress...</span>
-                  </div>
-                )}
-              </div>
-            ) : <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-600">Gmail</h3>
-                <span className="text-sm font-medium text-slate-500">
-                  {isGmailConnected ? 'NOT CONNECTED' : 'NOT CONNECTED'}
-                </span>
-              </div>
-              <p className="text-sm text-slate-500">
-                {isGmailConnected
-                  ? 'Connect your Gmail workspace above to start indexing.'
-                  : 'Connect your Gmail workspace to index pages and databases.'}
-              </p>
-            </div>}
-
-            {/* Notion Status Card */}
-            {statuses.find((s) => s.platform === 'notion') ? (
-              <div
-                className={`rounded-xl border p-4 ${getStatusColor(
-                  statuses.find((s) => s.platform === 'notion')?.status || 'idle'
-                )}`}
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Notion</h3>
-                  <span className="text-sm font-medium">
-                    {statuses.find((s) => s.platform === 'notion')?.status.toUpperCase()}
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <div>
-                    <span className="font-medium">Pages Indexed:</span>{' '}
-                    {statuses.find((s) => s.platform === 'notion')?.totalIndexed || 0}
-                  </div>
-                  <div>
-                    <span className="font-medium">Last Synced:</span>{' '}
-                    {formatDate(
-                      statuses.find((s) => s.platform === 'notion')?.lastSyncedAt
-                    )}
-                  </div>
-                </div>
-
-                {statuses.find((s) => s.platform === 'notion')?.status !== 'syncing' && (
-                  <button
-                    onClick={() => handleStartIndexing('notion')}
-                    className="mt-4 w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-500"
-                  >
-                    {(statuses.find((s) => s.platform === 'notion')?.totalIndexed || 0) > 0
-                      ? 'Re-index'
-                      : 'Start Indexing'}
-                  </button>
-                )}
-
-                {statuses.find((s) => s.platform === 'notion')?.status === 'syncing' && (
-                  <div className="mt-4 flex items-center justify-center gap-2">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-600 border-t-transparent"></div>
-                    <span className="text-sm">Indexing in progress...</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-600">Notion</h3>
-                  <span className="text-sm font-medium text-slate-500">
-                    {isNotionConnected ? 'NOT CONNECTED' : 'NOT CONNECTED'}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-500">
-                  {isNotionConnected
-                    ? 'Connect your Notion workspace above to start indexing.'
-                    : 'Connect your Notion workspace to index pages and databases.'}
-                </p>
-              </div>
-            )}
-
-            {/* Twitter Status Card (placeholder) */}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-600">Twitter</h3>
-                <span className="text-sm font-medium text-slate-500">COMING SOON</span>
-              </div>
-              <p className="text-sm text-slate-500">
-                Connect your Twitter account to index tweets and threads.
-              </p>
-            </div>
-          </div>
         </section>
       )}
     </main>
