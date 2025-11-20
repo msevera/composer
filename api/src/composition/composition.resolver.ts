@@ -28,32 +28,6 @@ export class CompositionResolver {
     }
   }
 
-  /**
-   * Compose email draft using RAG
-   */
-  @Mutation(() => DraftCompositionResult)  
-  async composeDraft(
-    @Context() context: any,
-    @Args('input') input: DraftCompositionInput,
-  ): Promise<DraftCompositionResult> {
-    const user = context.req.user;
-    const userId = user.id || user.userId || user._id;
-
-    if (!this.openai) {
-      throw new Error('OpenAI API key not configured');
-    }
-
-    if (!input.threadId) {
-      throw new Error('threadId is required when composing Gmail drafts');
-    }
-
-   
-    return {
-      content: `This is a Gmail draft. ${userId} ${input.prompt} ${input.threadId}`,
-      sources: [],
-    };
-  }
-
   @Mutation(() => ComposeDraftAgentResponse)
   async composeDraftWithAgent(
     @Context() context: any,
