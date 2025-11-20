@@ -1,56 +1,33 @@
-# Snail (Chrome extension)
+This is a [Plasmo extension](https://docs.plasmo.com/) project bootstrapped with [`plasmo init`](https://www.npmjs.com/package/plasmo).
 
-Vite + React + Tailwind popup that talks to the Smail GraphQL API. It checks whether the user already has a Better-Auth session (`me` query). If yes, the popup shows a “quick note” composer (textarea + send button). If not, it renders a compact sign-in form.
+## Getting Started
 
-## Development
+First, run the development server:
 
 ```bash
-cd extension
-npm install
+pnpm dev
+# or
 npm run dev
 ```
 
-The dev server runs at http://localhost:5173. The popup layout is fixed to 360×480px to match Chrome’s default extension window.
+Open your browser and load the appropriate development build. For example, if you are developing for the chrome browser, using manifest v3, use: `build/chrome-mv3-dev`.
 
-### Environment
+You can start editing the popup by modifying `popup.tsx`. It should auto-update as you make changes. To add an options page, simply add a `options.tsx` file to the root of the project, with a react component default exported. Likewise to add a content page, add a `content.ts` file to the root of the project, importing some module and do some logic, then reload the extension on your browser.
 
-```
-VITE_API_URL=http://localhost:4000/graphql
-VITE_AUTH_URL=http://localhost:4000/api/auth
-```
+For further guidance, [visit our Documentation](https://docs.plasmo.com/)
 
-Create `.env.local` (or export the variable) when your API isn’t running on the default URL.
+## Making production build
 
-## Building & loading the extension
+Run the following:
 
 ```bash
+pnpm build
+# or
 npm run build
 ```
 
-The production bundle is emitted into `extension/dist`. Load it into Chrome:
+This should create a production bundle for your extension, ready to be zipped and published to the stores.
 
-1. Open `chrome://extensions`
-2. Enable “Developer mode”
-3. Click **Load unpacked**
-4. Select `~/Projects/smail/extension/dist`
+## Submit to the webstores
 
-`public/manifest.json` and the icon set are copied automatically during the build.
-
-### Gmail overlay
-
-- `public/gmail-content.js` is injected on `https://mail.google.com/*`. It mounts a quick-note bar that floats at the bottom center of the screen whenever the extension detects an authenticated session.
-- Authentication state is synced via `chrome.storage.local.snailAuthenticated`, which the popup updates every time Better Auth reports a session.
-- To trust your unpacked extension, add its Chrome origin to the API env:  
-  `CHROME_EXTENSION_ORIGINS=chrome-extension://<your-extension-id>`
-
-## What ships in this bundle
-
-- Vite build with `base: './'` so the popup works when served from `chrome-extension://`
-- Tailwind-powered UI with cards for “session info” and “sign in”
-- Apollo Client configured with cookies (`credentials: 'include'`) so it reuses the Better-Auth session cookie from the Smail API
-- GraphQL operations:
-  - `GetCurrentUser` → decides whether to show the note composer or the sign-in form
-  - `SendQuickNote` → lightweight mutation that hits the API (currently logs on the backend)
-- Better Auth client (`better-auth/react`) for email/password auth plus session management shared with Gmail pages
-
-Feel free to expand the popup with additional mutations/queries or add background scripts/service workers as needed. The CSP in `public/manifest.json` is intentionally strict (`script-src 'self'`) because Vite’s build produces separate JS files without inline code. If you later add inline scripts, you’ll need to supply hashes or adopt a non-inline approach.
+The easiest way to deploy your Plasmo extension is to use the built-in [bpp](https://bpp.browser.market) GitHub action. Prior to using this action however, make sure to build your extension and upload the first version to the store to establish the basic credentials. Then, simply follow [this setup instruction](https://docs.plasmo.com/framework/workflows/submit) and you should be on your way for automated submission!

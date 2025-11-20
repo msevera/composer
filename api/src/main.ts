@@ -26,6 +26,8 @@ async function bootstrap() {
     'http://localhost:3001',
     'http://localhost:5173',
     'http://localhost:4000',
+    'https://mail.google.com',
+    'https://www.plasmo.com',
     ...extensionOrigins,
   ]);
 

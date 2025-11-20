@@ -81,5 +81,10 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  }
+  },
+  "manifest": {
+        "host_permissions": [
+            "http://localhost:4000"
+        ]
+    }
 }

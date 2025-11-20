@@ -271,7 +271,14 @@ export default function Home() {
 
   useEffect(() => {
     authClient
-      .getSession()
+      .getSession({
+        fetchOptions: {
+          onSuccess: (ctx)=>{
+            const jwt = ctx.response.headers.get("set-auth-jwt")
+            console.log('jwt', jwt)
+          }
+        },
+      })
       .then((session) => {
         if (session?.data?.user) {
           setIsAuthenticated(true);

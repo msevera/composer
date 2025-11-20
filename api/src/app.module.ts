@@ -13,6 +13,7 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { IndexingModule } from './indexing/indexing.module';
 import { CompositionModule } from './composition/composition.module';
 import { NotionModule } from './notion/notion.module';
+import { bearer, jwt } from "better-auth/plugins";
 
 @Module({
   imports: [
@@ -41,18 +42,21 @@ import { NotionModule } from './notion/notion.module';
       playground: true,
       context: ({ req, res }) => ({ req, res }),
     }),
-    UserModule,  
+    UserModule,
     IndexingModule,
     CompositionModule,
     AuthModule.forRootAsync({
       useFactory: (connection: Connection, configService: ConfigService) => {
-        const extensionOrigins = (configService.get<string>('CHROME_EXTENSION_ORIGINS') || '')
-          .split(',')
-          .map((origin) => origin.trim())
-          .filter(Boolean);
-
         return {
           auth: betterAuth({
+            plugins: [bearer(), jwt()],
+            advanced: {
+              defaultCookieAttributes: {
+                sameSite: "none",
+                secure: true,
+               // partitioned: true // newer browser standards
+              }
+            },
             database: mongodbAdapter(connection.db as any, {
               usePlural: true,
             }),
@@ -96,25 +100,8 @@ import { NotionModule } from './notion/notion.module';
               'http://localhost:3000',
               'http://localhost:4000',
               'http://localhost:5173',
-              ...extensionOrigins,
+              configService.get('CHROME_EXTENSION_ORIGINS') || '',
             ],
-            // Database hooks to intercept account creation and store OAuth tokens
-            databaseHooks: {
-              account: {
-                create: {
-                  before: async (account) => {
-                    console.log('Account created in database:', {
-                      accountId: account.id,
-                      providerId: account.providerId,
-                      userId: account.userId,
-                      hasAccessToken: !!account.accessToken,
-                      hasRefreshToken: !!account.refreshToken,
-                      expiresAt: account.accessTokenExpiresAt,
-                    });
-                  },
-                },
-              },
-            },
           }),
         };
       },
@@ -122,7 +109,7 @@ import { NotionModule } from './notion/notion.module';
     }),
     GmailModule,
     NotionModule,
-  ],
+  ]
 })
 export class AppModule { }
 

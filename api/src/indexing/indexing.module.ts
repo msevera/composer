@@ -9,7 +9,6 @@ import { NotionIndexerService } from './services/notion-indexer.service';
 import { IndexingResolver } from './indexing.resolver';
 import { NotionModule } from '../notion/notion.module';
 import { VectorSearchService } from './services/vector-search.service';
-import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -19,8 +18,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: TwitterEmbedding.name, schema: TwitterEmbeddingSchema },
       { name: User.name, schema: UserSchema },
     ]),
-    NotionModule,
-    AuthModule,
+    NotionModule
   ],
   providers: [
     EmbeddingService,

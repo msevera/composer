@@ -1,9 +1,8 @@
 import { Resolver, Query, Mutation, Context, Args } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
 import { NotionIndexerService } from './services/notion-indexer.service';
 import { PlatformIndexingStatus } from './entities/indexing-status.entity';
 import { NotionService } from '../notion/notion.service';
+import { Session, UserSession, AllowAnonymous, OptionalAuth } from '@thallesp/nestjs-better-auth';
 
 @Resolver()
 export class IndexingResolver {
@@ -16,7 +15,6 @@ export class IndexingResolver {
    * Get indexing status for specific platform
    */
   @Query(() => PlatformIndexingStatus)
-  @UseGuards(AuthGuard)
   async getIndexingStatus(
     @Context() context: any,
     @Args('platform') platform: string,
@@ -47,7 +45,6 @@ export class IndexingResolver {
    * Get indexing status for all platforms
    */
   @Query(() => [PlatformIndexingStatus])
-  @UseGuards(AuthGuard)
   async getAllIndexingStatuses(@Context() context: any): Promise<PlatformIndexingStatus[]> {
     const user = context.req.user;
     const userId = user.id || user.userId || user._id;
@@ -73,11 +70,11 @@ export class IndexingResolver {
    * Start indexing for specific platform
    */
   @Mutation(() => String)
-  @UseGuards(AuthGuard)
   async startIndexing(
     @Context() context: any,
     @Args('platform') platform: string,
   ): Promise<string> {
+
     const user = context.req.user;
     const userId = user.id || user.userId || user._id;
 
@@ -108,7 +105,6 @@ export class IndexingResolver {
    * Trigger manual sync for specific platform
    */
   @Mutation(() => String)
-  @UseGuards(AuthGuard)
   async triggerSync(
     @Context() context: any,
     @Args('platform') platform: string,
