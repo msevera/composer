@@ -19,6 +19,7 @@ describe('CompositionService', () => {
       draftContent: 'Draft',
       conversationId: 'conversation-1',
       messages: [],
+      activityLog: ['Generating draft...'],
     } satisfies AgentExecutionResult);
 
     const result = await service.composeDraftWithAgent('user-123', {
@@ -39,6 +40,7 @@ describe('CompositionService', () => {
       status: 'NEEDS_INPUT',
       question: 'Need more context?',
       conversationId: 'conversation-1',
+      activityLog: ['Requesting clarification…'],
     } satisfies AgentExecutionResult);
 
     const result = await service.resumeDraftComposition({

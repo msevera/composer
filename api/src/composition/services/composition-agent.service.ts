@@ -10,7 +10,7 @@ import {
   interrupt,
   isGraphInterrupt,
 } from '@langchain/langgraph';
-import { BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage,  } from 'langchain';
+import { BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { RunnableConfig } from '@langchain/core/runnables';
 import { ChatOpenAI } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
@@ -47,6 +47,13 @@ const AgentAnnotation = Annotation.Root({
     reducer: (_prev, next) => next ?? _prev,
     default: () => undefined,
   }),
+  activityLog: Annotation<string[]>({
+    reducer: (prev, next) => {
+      const nextValues = Array.isArray(next) ? next : next ? [next] : [];
+      return [...(prev ?? []), ...nextValues];
+    },
+    default: () => [],
+  }),
 });
 
 type AgentState = typeof AgentAnnotation.State;
@@ -56,12 +63,14 @@ export type AgentDraftReady = {
   draftContent: string;
   conversationId: string;
   messages: BaseMessage[];
+  activityLog: string[];
 };
 
 export type AgentClarificationNeeded = {
   status: 'NEEDS_INPUT';
   question: string;
   conversationId: string;
+  activityLog: string[];
 };
 
 export type AgentExecutionResult = AgentDraftReady | AgentClarificationNeeded;
@@ -136,7 +145,7 @@ export class CompositionAgentService {
     const conversationId = options.conversationId || this.buildConversationId(options.userId, options.threadId);
     const initialState: AgentState = {
       messages: [
-        new SystemMessage(this.systemPrompt),
+        this.buildSystemMessage(options),
         new HumanMessage({
           content: options.userPrompt,
         }),
@@ -146,6 +155,7 @@ export class CompositionAgentService {
       userPrompt: options.userPrompt,
       requiresUserInput: false,
       clarificationQuestion: undefined,
+      activityLog: ['Received user request.'],
     };
 
     try {
@@ -162,6 +172,7 @@ export class CompositionAgentService {
           status: 'NEEDS_INPUT',
           question,
           conversationId,
+          activityLog: [...(initialState.activityLog ?? []), 'Awaiting clarification…'],
         };
       }
       this.logger.error('Agent invocation failed', error as Error);
@@ -188,6 +199,7 @@ export class CompositionAgentService {
           status: 'NEEDS_INPUT',
           question,
           conversationId: options.conversationId,
+          activityLog: ['Awaiting clarification…'],
         };
       }
       this.logger.error('Agent resume failed', error as Error);
@@ -214,6 +226,7 @@ export class CompositionAgentService {
     const response = await this.modelWithTools.invoke(state.messages, config);
     return {
       messages: [response],
+      activityLog: ['Generating draft...'],
     };
   }
 
@@ -225,8 +238,16 @@ export class CompositionAgentService {
     }
 
     const toolMessages: ToolMessage[] = [];
+    const activityEntries: string[] = [];
     let requiresHuman = false;
     let clarificationQuestion: string | undefined;
+
+    const toolDescriptions: Record<string, string> = {
+      load_gmail_thread: 'Loading Gmail thread…',
+      search_gmail: 'Searching Gmail history…',
+      get_calendar_events: 'Checking calendar availability…',
+      ask_user_for_clarification: 'Requesting clarification…',
+    };
 
     for (const call of lastMessage.tool_calls) {
       const tool = this.toolsByName[call.name];
@@ -246,10 +267,31 @@ export class CompositionAgentService {
         userId: state.userId,
       };
 
-      const result = await tool.invoke(enrichedArgs, config);
+      const description = toolDescriptions[call.name] || `Running ${call.name}…`;
+      activityEntries.push(description);
+      let result: unknown;
+      try {
+        result = await tool.invoke(enrichedArgs, config);
+      } catch (error) {
+        if (isGraphInterrupt(error)) {
+          requiresHuman = true;
+          const questionFromInterrupt =
+            (error.interrupts?.[0]?.value?.question as string | undefined) ??
+            parsedArgs?.question ??
+            'Additional details required.';
+          clarificationQuestion = questionFromInterrupt;
+          activityEntries.push(`Clarification needed: ${questionFromInterrupt}`);
+          result = `Clarification requested: ${questionFromInterrupt}`;
+        } else {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Tool "${call.name}" failed: ${errorMessage}`);
+          activityEntries.push(`⚠️ ${description} failed: ${errorMessage}`);
+          result = `Tool "${call.name}" failed: ${errorMessage}`;
+        }
+      }
       if (call.name === 'ask_user_for_clarification' && parsedArgs?.question) {
         requiresHuman = true;
-        clarificationQuestion = parsedArgs.question;
+        clarificationQuestion = clarificationQuestion ?? parsedArgs.question;
       }
 
       toolMessages.push(
@@ -264,6 +306,7 @@ export class CompositionAgentService {
       messages: toolMessages,
       requiresUserInput: requiresHuman,
       clarificationQuestion,
+      activityLog: activityEntries,
     };
   }
 
@@ -284,6 +327,7 @@ export class CompositionAgentService {
       ],
       requiresUserInput: false,
       clarificationQuestion: undefined,
+      activityLog: ['Received clarification from user.'],
     };
   }
 
@@ -309,6 +353,7 @@ export class CompositionAgentService {
         status: 'NEEDS_INPUT',
         question: state.clarificationQuestion,
         conversationId,
+        activityLog: state.activityLog ?? [],
       };
     }
 
@@ -325,6 +370,7 @@ export class CompositionAgentService {
       draftContent,
       conversationId,
       messages,
+      activityLog: state.activityLog ?? [],
     };
   }
 
@@ -333,6 +379,16 @@ export class CompositionAgentService {
       return `composition-${userId}-${threadId}`;
     }
     return `composition-${userId}-${randomUUID()}`;
+  }
+
+  private buildSystemMessage(options: ComposeAgentOptions) {
+    const metadataLines = [
+      'Conversation metadata:',
+      `- userId: ${options.userId}`,
+      `- threadId: ${options.threadId ?? 'not provided'}`,
+    ].join('\n');
+
+    return new SystemMessage(`${this.systemPrompt}\n\n${metadataLines}`);
   }
 }
 

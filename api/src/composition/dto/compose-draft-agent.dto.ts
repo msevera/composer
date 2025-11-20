@@ -31,6 +31,9 @@ export class DraftResult {
 
   @Field()
   conversationId: string;
+
+  @Field(() => [String])
+  activity: string[];
 }
 
 @ObjectType()
@@ -43,6 +46,9 @@ export class ClarificationRequired {
 
   @Field()
   conversationId: string;
+
+  @Field(() => [String])
+  activity: string[];
 }
 
 export const ComposeDraftAgentResponse = createUnionType({

@@ -53,6 +53,7 @@ export class CompositionResolver {
         status: result.status,
         question: result.question,
         conversationId: result.conversationId,
+        activity: result.activityLog ?? [],
       };
     }
 
@@ -60,6 +61,7 @@ export class CompositionResolver {
       status: result.status,
       draftContent: result.draftContent,
       conversationId: result.conversationId,
+      activity: result.activityLog ?? [],
     };
   }
 

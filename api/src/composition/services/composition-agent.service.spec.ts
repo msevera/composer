@@ -54,6 +54,7 @@ describe('CompositionAgentService', () => {
 
     expect(result.draftContent).toContain('requested email draft');
     expect(result.conversationId).toContain('composition-user-1-thread-1');
+    expect(result.activityLog.length).toBeGreaterThan(0);
   });
 });
 
