@@ -331,33 +331,6 @@ export class GmailService {
     return response.json();
   }
 
-  async getCalendarEvents(userId: string, timeMin?: string, timeMax?: string) {
-    const accessToken = await this.getValidAccessToken(userId);
-
-    const params = new URLSearchParams({
-      singleEvents: 'true',
-      orderBy: 'startTime',
-    });
-
-    if (timeMin) params.append('timeMin', timeMin);
-    if (timeMax) params.append('timeMax', timeMax);
-
-    const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch calendar events');
-    }
-
-    return response.json();
-  }
-
   async disconnectGmail(userId: string): Promise<boolean> {
     const db = this.connection.db;
 

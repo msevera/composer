@@ -1,9 +1,17 @@
 import { Resolver, Mutation, Context, Args } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
 import { VectorSearchService } from '../indexing/services/vector-search.service';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { DraftCompositionInput, DraftCompositionResult } from './dto/draft-composition.dto';
+import {
+  ClarificationRequired,
+  ComposeDraftAgentInput,
+  ComposeDraftAgentResponse,
+  DraftResult,
+  ResumeDraftCompositionInput,
+} from './dto/compose-draft-agent.dto';
+import { CompositionService } from './composition.service';
+import { AgentExecutionResult } from './services/composition-agent.service';
 
 @Resolver()
 export class CompositionResolver {
@@ -12,6 +20,7 @@ export class CompositionResolver {
   constructor(
     private vectorSearchService: VectorSearchService,
     private configService: ConfigService,
+    private compositionService: CompositionService,
   ) {
     const apiKey = this.configService.get('OPENAI_API_KEY');
     if (apiKey) {
@@ -42,6 +51,41 @@ export class CompositionResolver {
     return {
       content: `This is a Gmail draft. ${userId} ${input.prompt} ${input.threadId}`,
       sources: [],
+    };
+  }
+
+  @Mutation(() => ComposeDraftAgentResponse)
+  async composeDraftWithAgent(
+    @Context() context: any,
+    @Args('input') input: ComposeDraftAgentInput,
+  ): Promise<typeof ComposeDraftAgentResponse> {
+    const user = context.req.user;
+    const userId = user.id || user.userId || user._id;
+    const result = await this.compositionService.composeDraftWithAgent(userId.toString(), input);
+    return this.mapAgentResult(result);
+  }
+
+  @Mutation(() => ComposeDraftAgentResponse)
+  async resumeDraftComposition(
+    @Args('input') input: ResumeDraftCompositionInput,
+  ): Promise<typeof ComposeDraftAgentResponse> {
+    const result = await this.compositionService.resumeDraftComposition(input);
+    return this.mapAgentResult(result);
+  }
+
+  private mapAgentResult(result: AgentExecutionResult): DraftResult | ClarificationRequired {
+    if (result.status === 'NEEDS_INPUT') {
+      return {
+        status: result.status,
+        question: result.question,
+        conversationId: result.conversationId,
+      };
+    }
+
+    return {
+      status: result.status,
+      draftContent: result.draftContent,
+      conversationId: result.conversationId,
     };
   }
 

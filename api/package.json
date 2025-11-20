@@ -18,6 +18,9 @@
   },
   "dependencies": {
     "@as-integrations/express5": "^1.1.2",
+    "@langchain/core": "^1.0.6",
+    "@langchain/langgraph": "^1.0.2",
+    "@langchain/openai": "^1.1.2",
     "@nestjs/apollo": "^13.2.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.1.9",
@@ -26,20 +29,23 @@
     "@nestjs/graphql": "^13.2.0",
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.1.9",
+    "@notionhq/client": "^5.4.0",
     "@thallesp/nestjs-better-auth": "^2.1.0",
     "better-auth": "^1.3.34",
     "bullmq": "^5.63.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "cookie-parser": "^1.4.6",
+    "googleapis": "^166.0.0",
     "graphql": "^16.12.0",
     "html-to-text": "^9.0.5",
-    "@notionhq/client": "^5.4.0",
+    "langchain": "^1.0.6",
     "mongodb": "^6.20.0",
     "mongoose": "^8.19.4",
     "openai": "^6.9.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
@@ -83,8 +89,8 @@
     "testEnvironment": "node"
   },
   "manifest": {
-        "host_permissions": [
-            "http://localhost:4000"
-        ]
-    }
+    "host_permissions": [
+      "http://localhost:4000"
+    ]
+  }
 }
