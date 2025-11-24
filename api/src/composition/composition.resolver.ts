@@ -45,7 +45,7 @@ export class CompositionResolver {
   ): Promise<typeof ComposeDraftAgentResponse> {
     const result = await this.compositionService.resumeDraftComposition(input);
     return this.mapAgentResult(result);
-  }
+    }
 
   private mapAgentResult(result: AgentExecutionResult): DraftResult | ClarificationRequired {
     if (result.status === 'NEEDS_INPUT') {
@@ -56,7 +56,7 @@ export class CompositionResolver {
         activity: result.activityLog ?? [],
       };
     }
-
+   
     return {
       status: result.status,
       draftContent: result.draftContent,

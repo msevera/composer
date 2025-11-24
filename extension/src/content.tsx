@@ -14,20 +14,20 @@ import { apolloClient } from "./lib/apollo-client";
 import { cn } from "./lib/utils";
 
 export const config: PlasmoCSConfig = {
-	matches: ["https://mail.google.com/*"],
+  matches: ["https://mail.google.com/*"],
 };
 
 export const getStyle = () => {
-	const style = document.createElement("style");
-	style.textContent = cssText;
-	return style;
+  const style = document.createElement("style");
+  style.textContent = cssText;
+  return style;
 };
 
 const MIN_TEXTAREA_HEIGHT = 21;
 
 const PlasmoOverlay = () => {
-	const { data: session, isPending } = authClient.useSession();
-	const [message, setMessage] = useState("");
+  const { data: session, isPending } = authClient.useSession();
+  const [message, setMessage] = useState("");
 	const [isRunning, setIsRunning] = useState(false);
 	const [activityMessage, setActivityMessage] = useState<string | null>(null);
 	const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null);
@@ -37,20 +37,20 @@ const PlasmoOverlay = () => {
 	>([]);
 	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [threadId, setThreadId] = useState<string | undefined>(() => getThreadIdFromDom());
-	const isThreadView = useIsGmailThreadView();
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const isThreadView = useIsGmailThreadView();
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const abortControllerRef = useRef<AbortController | null>(null);
 
-	useEffect(() => {
-		if (!textareaRef.current) {
-			return;
-		}
+  useEffect(() => {
+    if (!textareaRef.current) {
+      return;
+    }
 
-		const element = textareaRef.current;
-		element.style.height = "auto";
-		const nextHeight = Math.max(element.scrollHeight, MIN_TEXTAREA_HEIGHT);
-		element.style.height = `${nextHeight}px`;
-	}, [message]);
+    const element = textareaRef.current;
+    element.style.height = "auto";
+    const nextHeight = Math.max(element.scrollHeight, MIN_TEXTAREA_HEIGHT);
+    element.style.height = `${nextHeight}px`;
+  }, [message]);
 
 	useEffect(() => {
 		const updateThreadContext = () => {
@@ -82,10 +82,10 @@ const PlasmoOverlay = () => {
 		};
 	}, [isThreadView]);
 
-	const shouldRender = useMemo(
+  const shouldRender = useMemo(
 		() => Boolean(!isPending && session && isThreadView && threadId),
 		[isPending, isThreadView, session, threadId],
-	);
+  );
 
 	const handleAgentResponse = useCallback(
 		(response: Record<string, any>) => {
@@ -152,15 +152,15 @@ const PlasmoOverlay = () => {
 				return;
 			}
 
-			if (!message.trim()) {
-				toast.error("Please enter a message");
-				return;
-			}
+    if (!message.trim()) {
+      toast.error("Please enter a message");
+      return;
+    }
 
-			if (!threadId) {
+    if (!threadId) {
 				toast.error("Unable to find the Gmail thread. Please refresh and try again.");
-				return;
-			}
+      return;
+    }
 
 			const isClarification = Boolean(clarificationQuestion && conversationId);
 			setIsRunning(true);
@@ -178,9 +178,9 @@ const PlasmoOverlay = () => {
 							},
 					  }
 					: {
-							input: {
+          input: {
 								userPrompt: message.trim(),
-								threadId,
+            threadId,
 								conversationId: conversationId ?? undefined,
 							},
 					  };
@@ -193,23 +193,23 @@ const PlasmoOverlay = () => {
 					context: {
 						fetchOptions: {
 							signal: abortController.signal,
-						},
-					},
-				});
+          },
+        },
+      });
 
 				const response = isClarification
 					? data?.resumeDraftComposition
 					: data?.composeDraftWithAgent;
 				handleAgentResponse(response);
-			} catch (error) {
+    } catch (error) {
 				if ((error as Error)?.name === "AbortError") {
 					toast.message("Agent stopped");
 					return;
 				}
 				const messageText =
-					error instanceof Error ? error.message : "Failed to compose draft. Please try again.";
+        error instanceof Error ? error.message : "Failed to compose draft. Please try again.";
 				toast.error(messageText);
-			} finally {
+    } finally {
 				setIsRunning(false);
 				abortControllerRef.current = null;
 			}
@@ -265,14 +265,14 @@ const PlasmoOverlay = () => {
 		return null;
 	}
 
-	return (
-		<>
-			<Toaster position="top-center" />
-			<div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
-				<form
-					onSubmit={handleSubmit}
+  return (
+    <>
+      <Toaster position="top-center" />
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
+        <form
+          onSubmit={handleSubmit}
 					className="pointer-events-auto w-full max-w-xl rounded-3xl bg-black/80 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur"
-				>
+        >
 					<div className="mb-3 flex items-center justify-between">
 						<p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Snail Composer</p>
 						<Button
@@ -340,137 +340,137 @@ const PlasmoOverlay = () => {
 					</div>
 
 					<div className="mt-4 flex w-full items-end gap-2 rounded-2xl bg-gradient-to-r from-stone-900 via-black to-stone-900 px-3 py-3">
-						<textarea
-							ref={textareaRef}
-							value={message}
-							onChange={(event) => setMessage(event.target.value)}
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && !event.shiftKey) {
 									event.preventDefault();
 									void (isRunning ? handleStop() : handleSubmit());
 								}
 							}}
-							rows={1}
+              rows={1}
 							placeholder={
 								clarificationQuestion
 									? "Answer the agent's question..."
 									: "Tell the agent what you need"
 							}
-							className="max-h-40 min-h-[21px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
-						/>
-						<Button
+              className="max-h-40 min-h-[21px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
+            />
+            <Button
 							type={isRunning ? "button" : "submit"}
 							onClick={isRunning ? handleStop : undefined}
 							disabled={!message.trim() && !isRunning}
-							size="sm"
+              size="sm"
 							className={cn(
 								"self-end h-9 rounded-full px-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition",
 								isRunning ? "bg-red-500/80 hover:bg-red-500" : "bg-white/10 hover:bg-white/20",
 							)}
-						>
+            >
 							{isRunning ? (
-								<>
+                <>
 									<Square className="mr-2 h-3.5 w-3.5" />
 									Stop
-								</>
-							) : (
+                </>
+              ) : (
 								<>
 									<Loader2 className="mr-2 h-3.5 w-3.5 opacity-0" />
 									Send
 								</>
-							)}
-						</Button>
-					</div>
-				</form>
-			</div>
-		</>
-	);
+              )}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </>
+  );
 };
 
 export default PlasmoOverlay;
 
 function useIsGmailThreadView() {
-	const [isThreadView, setIsThreadView] = useState(() => checkThreadView());
+  const [isThreadView, setIsThreadView] = useState(() => checkThreadView());
 
-	useEffect(() => {
-		const updateView = () => setIsThreadView(checkThreadView());
+  useEffect(() => {
+    const updateView = () => setIsThreadView(checkThreadView());
 
-		window.addEventListener("hashchange", updateView);
-		window.addEventListener("popstate", updateView);
+    window.addEventListener("hashchange", updateView);
+    window.addEventListener("popstate", updateView);
 
-		const observer = new MutationObserver(() => {
-			updateView();
-		});
-		observer.observe(document.body, { childList: true, subtree: true });
+    const observer = new MutationObserver(() => {
+      updateView();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-		return () => {
-			window.removeEventListener("hashchange", updateView);
-			window.removeEventListener("popstate", updateView);
-			observer.disconnect();
-		};
-	}, []);
+    return () => {
+      window.removeEventListener("hashchange", updateView);
+      window.removeEventListener("popstate", updateView);
+      observer.disconnect();
+    };
+  }, []);
 
-	return isThreadView;
+  return isThreadView;
 }
 
 function checkThreadView() {
-	if (typeof window === "undefined") {
-		return false;
-	}
+  if (typeof window === "undefined") {
+    return false;
+  }
 
-	const isGmail = window.location.hostname.includes("mail.google.com");
-	if (!isGmail) {
-		return false;
-	}
+  const isGmail = window.location.hostname.includes("mail.google.com");
+  if (!isGmail) {
+    return false;
+  }
 
-	const hash = window.location.hash ?? "";
-	const search = window.location.search ?? "";
+  const hash = window.location.hash ?? "";
+  const search = window.location.search ?? "";
 
-	const hasThreadIdInHash = /#(?:inbox|sent|starred|drafts|imp|all|label\/[^/]+)\/[\w-]+/i.test(hash);
-	const hasThreadViewParam = /[?&]view=pt/i.test(search);
+  const hasThreadIdInHash = /#(?:inbox|sent|starred|drafts|imp|all|label\/[^/]+)\/[\w-]+/i.test(hash);
+  const hasThreadViewParam = /[?&]view=pt/i.test(search);
 
-	if (hasThreadIdInHash || hasThreadViewParam) {
-		return true;
-	}
+  if (hasThreadIdInHash || hasThreadViewParam) {
+    return true;
+  }
 
-	return hasThreadDomMarkers();
+  return hasThreadDomMarkers();
 }
 
 function hasThreadDomMarkers() {
-	if (typeof document === "undefined") {
-		return false;
-	}
+  if (typeof document === "undefined") {
+    return false;
+  }
 
-	return Boolean(
-		document.querySelector(
-			'div[role="main"] div[data-legacy-thread-id], div[role="main"] div[data-legacy-message-id], div[role="main"] .ha, div[role="main"] .h7',
-		),
-	);
+  return Boolean(
+    document.querySelector(
+      'div[role="main"] div[data-legacy-thread-id], div[role="main"] div[data-legacy-message-id], div[role="main"] .ha, div[role="main"] .h7',
+    ),
+  );
 }
 
 function getThreadIdFromDom() {
-	if (typeof document === "undefined") {
-		return undefined;
-	}
+  if (typeof document === "undefined") {
+    return undefined;
+  }
 
-	const heading = document.querySelector<HTMLHeadingElement>("h2[data-legacy-thread-id]");
-	if (heading?.dataset.legacyThreadId) {
-		return heading.dataset.legacyThreadId;
-	}
+  const heading = document.querySelector<HTMLHeadingElement>("h2[data-legacy-thread-id]");
+  if (heading?.dataset.legacyThreadId) {
+    return heading.dataset.legacyThreadId;
+  }
 
-	const legacyContainer = document.querySelector<HTMLElement>("[data-legacy-thread-id]");
-	if (legacyContainer?.dataset.legacyThreadId) {
-		return legacyContainer.dataset.legacyThreadId;
-	}
+  const legacyContainer = document.querySelector<HTMLElement>("[data-legacy-thread-id]");
+  if (legacyContainer?.dataset.legacyThreadId) {
+    return legacyContainer.dataset.legacyThreadId;
+  }
 
-	if (typeof window !== "undefined") {
-		const hashMatch = window.location.hash.match(/\/([\w-]+)$/);
-		if (hashMatch) {
-			return hashMatch[1];
-		}
-	}
+  if (typeof window !== "undefined") {
+    const hashMatch = window.location.hash.match(/\/([\w-]+)$/);
+    if (hashMatch) {
+      return hashMatch[1];
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 function safeLocalStorageGet(threadId: string) {

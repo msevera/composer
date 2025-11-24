@@ -1,62 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  Annotation,
-  Command,
-  END,
-  MemorySaver,
-  MessagesAnnotation,
-  START,
-  StateGraph,
-  interrupt,
-  isGraphInterrupt,
-} from '@langchain/langgraph';
-import { BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { RunnableConfig } from '@langchain/core/runnables';
-import { ChatOpenAI } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'node:crypto';
-import {
-  createGmailSearchTool,
-  createGmailThreadLoaderTool,
-  createGoogleCalendarTool,
-  createHumanInputTool,
-} from '../tools';
+import { ChatOpenAI } from '@langchain/openai';
+import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
+import { tool } from 'langchain';
+import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
-import { StructuredToolInterface } from '@langchain/core/tools';
-
-const AgentAnnotation = Annotation.Root({
-  ...MessagesAnnotation.spec,
-  threadId: Annotation<string | undefined>({
-    reducer: (_prev, next) => next ?? _prev,
-    default: () => undefined,
-  }),
-  userId: Annotation<string>({
-    reducer: (_prev, next) => next ?? _prev,
-    default: () => '',
-  }),
-  userPrompt: Annotation<string>({
-    reducer: (_prev, next) => next ?? _prev,
-    default: () => '',
-  }),
-  requiresUserInput: Annotation<boolean>({
-    reducer: (_prev, next) => (typeof next === 'boolean' ? next : _prev),
-    default: () => false,
-  }),
-  clarificationQuestion: Annotation<string | undefined>({
-    reducer: (_prev, next) => next ?? _prev,
-    default: () => undefined,
-  }),
-  activityLog: Annotation<string[]>({
-    reducer: (prev, next) => {
-      const nextValues = Array.isArray(next) ? next : next ? [next] : [];
-      return [...(prev ?? []), ...nextValues];
-    },
-    default: () => [],
-  }),
-});
-
-type AgentState = typeof AgentAnnotation.State;
+import { Annotation, CompiledStateGraph, END, MessagesAnnotation, START, StateGraph } from '@langchain/langgraph';
+import { MemorySaver } from '@langchain/langgraph';
 
 export type AgentDraftReady = {
   status: 'DRAFT_READY';
@@ -87,291 +39,562 @@ export interface ResumeAgentOptions {
   userResponse: string;
 }
 
+interface SupervisorDraftResult {
+  status: 'draft';
+  draft: string;
+  activity?: string[];
+}
+
+interface SupervisorClarificationResult {
+  status: 'clarification';
+  question: string;
+  activity?: string[];
+}
+
+type SupervisorOutcome = SupervisorDraftResult | SupervisorClarificationResult;
+
+interface ComposeDraftContext {
+  threadSummary: string;
+  searchSummary?: string | null;
+  calendarSummary?: string | null;
+  vectorSummary?: string | null;
+  instructions?: string;
+}
+
+interface ToolExecutionResult {
+  message: string;
+  activity?: string;
+  searchSummary?: string;
+  calendarSummary?: string;
+  vectorSummary?: string;
+}
+
+type ToolHandler = (args: Record<string, any>, state: AgentStateType) => Promise<ToolExecutionResult>;
+
+interface AgentToolDefinition {
+  metadata: ReturnType<typeof tool>;
+  handler: ToolHandler;
+}
+
+const AgentState = Annotation.Root({
+  ...MessagesAnnotation.spec,
+  threadSummary: Annotation<string | null>(),
+  searchSummary: Annotation<string | null>(),
+  calendarSummary: Annotation<string | null>(),
+  vectorSummary: Annotation<string | null>(),
+  activity: Annotation<string[]>({
+    reducer: (left: string[] = [], right: string | string[] | undefined) => {
+      if (!right) {
+        return left;
+      }
+      const updates = Array.isArray(right) ? right : [right];
+      return left.concat(updates);
+    },
+    default: () => [],
+  }),
+  userId: Annotation<string | null>(),
+  threadId: Annotation<string | null>(),
+  pendingUserPrompt: Annotation<string | null>(),
+});
+
+type AgentStateType = typeof AgentState.State;
+
 @Injectable()
 export class CompositionAgentService {
   private readonly logger = new Logger(CompositionAgentService.name);
-  private readonly tools: StructuredToolInterface[];
-  private readonly toolsByName: Record<string, StructuredToolInterface>;
-  private readonly systemPrompt: string;
-  private readonly model: ChatOpenAI;
-  private readonly modelWithTools: ReturnType<ChatOpenAI['bindTools']>;
-  private readonly checkpointer = new MemorySaver();
-  private readonly graph;
+  private readonly supervisorModel: ChatOpenAI;
+  private readonly workerModel: ChatOpenAI;
+  private readonly reasoningModel: { invoke: (messages: BaseMessage[], config?: unknown) => Promise<AIMessage> };
+  private readonly toolHandlers: Record<string, ToolHandler>;
+  private readonly agentGraph: CompiledStateGraph<any, any, any, any, any, any>;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly gmailService: GmailService,
     private readonly calendarService: CalendarService,
   ) {
-    this.tools = [
-      createGmailThreadLoaderTool(this.gmailService),
-      createGmailSearchTool(this.gmailService),
-      createGoogleCalendarTool(this.calendarService),
-      createHumanInputTool(),
-    ];
-    this.toolsByName = this.tools.reduce<Record<string, StructuredToolInterface>>((acc, tool) => {
-      acc[tool.name] = tool;
-      return acc;
-    }, {});
+    const modelName = this.configService.get<string>('COMPOSITION_AGENT_MODEL') || 'gpt-4o';
+    this.supervisorModel = new ChatOpenAI({ model: modelName, temperature: 0 });
+    this.workerModel = new ChatOpenAI({ model: modelName, temperature: 0.2 });
 
-    this.systemPrompt = [
-      'You are an email composition assistant. Your goal is to draft professional, context-aware Gmail replies.',
-      'Always reference available context and keep tone helpful and concise.',
-      'Available tools:',
-      '- load_gmail_thread: Retrieve the full conversation history.',
-      '- search_gmail: Search historical emails for more context.',
-      '- get_calendar_events: Review calendar availability for scheduling.',
-      '- ask_user_for_clarification: Request missing information from the user.',
-      'Guidelines:',
-      '1. Load the Gmail thread when a threadId is provided.',
-      '2. Search Gmail history if user references earlier conversations.',
-      '3. Use calendar tool when proposing times.',
-      '4. Ask clarifying questions if the user intent is unclear.',
-      '5. Produce a polished email draft that can be sent as-is.',
-      '6. Include relevant context and action steps.',
-    ].join('\n');
+    const toolDefinitions = this.buildAgentTools();
+    this.toolHandlers = Object.fromEntries(toolDefinitions.map((definition) => [definition.metadata.name, definition.handler]));
+    this.reasoningModel = this.supervisorModel.bindTools(toolDefinitions.map((definition) => definition.metadata));
 
-    const modelName = this.configService.get<string>('COMPOSITION_AGENT_MODEL') || 'gpt-4o-mini';
-    this.model = new ChatOpenAI({
-      model: modelName,
-      temperature: 0.2,
+    const builder = new StateGraph(AgentState)
+      .addNode('load_thread', this.loadThreadNode.bind(this))
+      .addNode('agent_loop', this.agentNode.bind(this))
+      .addNode('tools', this.toolsNode.bind(this))
+      .addNode('compose_draft', this.composeDraftNode.bind(this))
+      .addEdge(START, 'load_thread')
+      .addEdge('load_thread', 'agent_loop')
+      .addConditionalEdges('agent_loop', this.routeFromAgent.bind(this))
+      .addEdge('tools', 'agent_loop')
+      .addEdge('compose_draft', END);
+
+    this.agentGraph = builder.compile({
+      checkpointer: new MemorySaver(),
     });
-    // bindTools returns a ChatOpenAI instance aware of the provided tools for function calling
-    this.modelWithTools = this.model.bindTools(this.tools);
-    this.graph = this.buildGraph();
   }
 
   async compose(options: ComposeAgentOptions): Promise<AgentExecutionResult> {
+    if (!options.threadId) {
+      throw new Error('threadId is required to compose a draft.');
+    }
     const conversationId = options.conversationId || this.buildConversationId(options.userId, options.threadId);
-    const initialState: AgentState = {
-      messages: [
-        this.buildSystemMessage(options),
-        new HumanMessage({
-          content: options.userPrompt,
-        }),
-      ],
-      threadId: options.threadId,
-      userId: options.userId,
-      userPrompt: options.userPrompt,
-      requiresUserInput: false,
-      clarificationQuestion: undefined,
-      activityLog: ['Received user request.'],
-    };
 
-    try {
-      const result = await this.graph.invoke(initialState, {
+    const finalState = await this.agentGraph.invoke(
+      {
+        messages: [],
+        activity: ['Received user request.'],
+        userId: options.userId,
+        threadId: options.threadId,
+        pendingUserPrompt: options.userPrompt,
+      },
+      {
         configurable: {
           thread_id: conversationId,
         },
-      });
-      return this.toExecutionResult(result, conversationId);
-    } catch (error) {
-      if (isGraphInterrupt(error)) {
-        const question = error.interrupts?.[0]?.value?.question || 'Additional information is required.';
-        return {
-          status: 'NEEDS_INPUT',
-          question,
-          conversationId,
-          activityLog: [...(initialState.activityLog ?? []), 'Awaiting clarification…'],
-        };
-      }
-      this.logger.error('Agent invocation failed', error as Error);
-      throw error;
+      },
+    );
+
+    const outcome = this.parseSupervisorOutcome(this.extractLastAIMessage(finalState.messages));
+
+    if (!outcome || outcome.status !== 'draft') {
+      throw new Error('Supervisor must always produce a draft.');
     }
-  }
 
-  async resume(options: ResumeAgentOptions): Promise<AgentExecutionResult> {
-    const command = new Command({
-      resume: options.userResponse,
-    });
-
-    try {
-      const result = await this.graph.invoke(command, {
-        configurable: {
-          thread_id: options.conversationId,
-        },
-      });
-      return this.toExecutionResult(result, options.conversationId);
-    } catch (error) {
-      if (isGraphInterrupt(error)) {
-        const question = error.interrupts?.[0]?.value?.question || 'Additional information is required.';
-        return {
-          status: 'NEEDS_INPUT',
-          question,
-          conversationId: options.conversationId,
-          activityLog: ['Awaiting clarification…'],
-        };
-      }
-      this.logger.error('Agent resume failed', error as Error);
-      throw error;
-    }
-  }
-
-  private buildGraph() {
-    const workflow = new StateGraph(AgentAnnotation)
-      .addNode('agent', this.agentNode.bind(this))
-      .addNode('tools', this.toolsNode.bind(this))
-      .addNode('human', this.humanNode.bind(this))
-      .addEdge(START, 'agent')
-      .addConditionalEdges('agent', this.routeFromAgent.bind(this))
-      .addConditionalEdges('tools', this.routeFromTools.bind(this))
-      .addEdge('human', 'agent');
-
-    return workflow.compile({
-      checkpointer: this.checkpointer,
-    });
-  }
-
-  private async agentNode(state: AgentState, config?: RunnableConfig) {
-    const response = await this.modelWithTools.invoke(state.messages, config);
     return {
-      messages: [response],
-      activityLog: ['Generating draft...'],
+      status: 'DRAFT_READY',
+      draftContent: outcome.draft,
+      conversationId,
+      messages: finalState.messages,
+      activityLog: finalState.activity ?? [],
     };
   }
 
-  private async toolsNode(state: AgentState, config?: RunnableConfig) {
-    const messages = state.messages || [];
-    const lastMessage = messages[messages.length - 1];
-    if (!(lastMessage instanceof AIMessage) || !lastMessage.tool_calls?.length) {
-      return {};
+  async resume(_options: ResumeAgentOptions): Promise<AgentExecutionResult> {
+    throw new Error('Clarification cycles are not supported in the current agent implementation.');
+  }
+
+  private buildAgentTools(): AgentToolDefinition[] {
+    return [
+      {
+        metadata: tool(async () => '', {
+          name: 'search_related_emails',
+          description: 'Search the mailbox for related historical context.',
+          schema: z.object({
+            query: z.string().optional(),
+          }),
+        }),
+        handler: this.handleSearchTool.bind(this),
+      },
+      {
+        metadata: tool(async () => '', {
+          name: 'calendar_lookup',
+          description: 'Fetch upcoming availability from the calendar for scheduling replies.',
+          schema: z.object({
+            lookAheadDays: z.number().int().positive().max(60).optional(),
+          }),
+        }),
+        handler: this.handleCalendarTool.bind(this),
+      },
+      {
+        metadata: tool(async () => '', {
+          name: 'vector_lookup',
+          description: 'Search the internal knowledge base for additional context.',
+          schema: z.object({
+            topic: z.string().optional(),
+          }),
+        }),
+        handler: this.handleVectorTool.bind(this),
+      },
+    ];
+  }
+
+  private async loadThreadNode(state: AgentStateType) {
+    if (!state.userId || !state.threadId) {
+      throw new Error('User ID and thread ID are required before loading the thread.');
+    }
+
+    try {
+      const thread = await this.gmailService.getThread(state.userId, state.threadId);
+      const summary = this.summarizeThread(thread);
+      const prompt = state.pendingUserPrompt ?? '';
+      const messages: BaseMessage[] = [
+        new SystemMessage(
+          [
+            'You are a helpful personal email assistant.',
+            'Use the following Gmail thread summary as the authoritative context for crafting replies.',
+            `Thread summary:\n${summary}`,
+          ].join('\n\n'),
+        ),
+      ];
+      if (prompt) {
+        messages.push(new HumanMessage(prompt));
+      }
+
+      return {
+        threadSummary: summary,
+        messages,
+        pendingUserPrompt: null,
+        activity: 'Loaded Gmail thread context.',
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to load Gmail thread: ${message}`);
+    }
+  }
+
+  private async agentNode(state: AgentStateType) {
+    const aiResponse = await this.reasoningModel.invoke(state.messages, {
+      configurable: {
+        threadId: state.threadId ?? undefined,
+        userId: state.userId ?? undefined,
+      },
+    });
+    return {
+      messages: [aiResponse],
+    };
+  }
+
+  private async toolsNode(state: AgentStateType) {
+    const lastAI = this.extractLastAIMessage(state.messages);
+    if (!lastAI?.tool_calls?.length) {
+      return {
+        activity: 'Agent attempted to execute tools without specifying any tool calls.',
+      };
     }
 
     const toolMessages: ToolMessage[] = [];
-    const activityEntries: string[] = [];
-    let requiresHuman = false;
-    let clarificationQuestion: string | undefined;
+    const activityUpdates: string[] = [];
+    const summaryUpdates: Partial<Pick<AgentStateType, 'searchSummary' | 'calendarSummary' | 'vectorSummary'>> = {};
 
-    const toolDescriptions: Record<string, string> = {
-      load_gmail_thread: 'Loading Gmail thread…',
-      search_gmail: 'Searching Gmail history…',
-      get_calendar_events: 'Checking calendar availability…',
-      ask_user_for_clarification: 'Requesting clarification…',
-    };
-
-    for (const call of lastMessage.tool_calls) {
-      const tool = this.toolsByName[call.name];
-      if (!tool) {
+    for (const call of lastAI.tool_calls) {
+      const handler = this.toolHandlers[call.name];
+      if (!handler) {
+        const unknownMessage = `Unknown tool "${call.name}" requested.`;
         toolMessages.push(
           new ToolMessage({
-            content: `Tool "${call.name}" is not available.`,
+            content: unknownMessage,
             tool_call_id: call.id,
           }),
         );
+        activityUpdates.push(unknownMessage);
         continue;
       }
 
-      const parsedArgs = typeof call.args === 'string' ? JSON.parse(call.args) : call.args;
-      const enrichedArgs = {
-        ...parsedArgs,
-        userId: state.userId,
-      };
-
-      const description = toolDescriptions[call.name] || `Running ${call.name}…`;
-      activityEntries.push(description);
-      let result: unknown;
       try {
-        result = await tool.invoke(enrichedArgs, config);
-      } catch (error) {
-        if (isGraphInterrupt(error)) {
-          requiresHuman = true;
-          const questionFromInterrupt =
-            (error.interrupts?.[0]?.value?.question as string | undefined) ??
-            parsedArgs?.question ??
-            'Additional details required.';
-          clarificationQuestion = questionFromInterrupt;
-          activityEntries.push(`Clarification needed: ${questionFromInterrupt}`);
-          result = `Clarification requested: ${questionFromInterrupt}`;
-        } else {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          this.logger.warn(`Tool "${call.name}" failed: ${errorMessage}`);
-          activityEntries.push(`⚠️ ${description} failed: ${errorMessage}`);
-          result = `Tool "${call.name}" failed: ${errorMessage}`;
+        const result = await handler(call.args ?? {}, state);
+        toolMessages.push(
+          new ToolMessage({
+            content: result.message,
+            tool_call_id: call.id,
+          }),
+        );
+        if (result.activity) {
+          activityUpdates.push(result.activity);
         }
+        if (result.searchSummary) {
+          summaryUpdates.searchSummary = result.searchSummary;
+        }
+        if (result.calendarSummary) {
+          summaryUpdates.calendarSummary = result.calendarSummary;
+        }
+        if (result.vectorSummary) {
+          summaryUpdates.vectorSummary = result.vectorSummary;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        toolMessages.push(
+          new ToolMessage({
+            content: `Tool execution failed: ${message}`,
+            tool_call_id: call.id,
+          }),
+        );
+        activityUpdates.push(`⚠️ ${call.name} failed: ${message}`);
       }
-      if (call.name === 'ask_user_for_clarification' && parsedArgs?.question) {
-        requiresHuman = true;
-        clarificationQuestion = clarificationQuestion ?? parsedArgs.question;
-      }
-
-      toolMessages.push(
-        new ToolMessage({
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-          tool_call_id: call.id,
-        }),
-      );
     }
 
     return {
       messages: toolMessages,
-      requiresUserInput: requiresHuman,
-      clarificationQuestion,
-      activityLog: activityEntries,
+      activity: activityUpdates,
+      ...summaryUpdates,
     };
   }
 
-  private async humanNode(state: AgentState) {
-    if (!state.clarificationQuestion) {
-      return { requiresUserInput: false };
+  private async composeDraftNode(state: AgentStateType) {
+    if (!state.threadSummary) {
+      throw new Error('Thread summary missing prior to composing draft.');
     }
-
-    const userResponse = await interrupt({
-      question: state.clarificationQuestion,
+    const lastAI = this.extractLastAIMessage(state.messages);
+    if (!lastAI) {
+      throw new Error('Agent did not provide final drafting instructions.');
+    }
+    const instructions = this.renderMessageContent(lastAI);
+    const draft = await this.generateDraft({
+      threadSummary: state.threadSummary,
+      searchSummary: state.searchSummary,
+      calendarSummary: state.calendarSummary,
+      vectorSummary: state.vectorSummary,
+      instructions,
     });
-
+    const response = new AIMessage(
+      JSON.stringify({
+        status: 'draft',
+        draft,
+        activity: ['Email draft generated.'],
+      }),
+    );
     return {
-      messages: [
-        new HumanMessage({
-          content: userResponse,
-        }),
-      ],
-      requiresUserInput: false,
-      clarificationQuestion: undefined,
-      activityLog: ['Received clarification from user.'],
+      messages: [response],
+      activity: 'Email draft generated.',
     };
   }
 
-  private routeFromAgent(state: AgentState) {
-    const messages = state.messages || [];
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage instanceof AIMessage && Array.isArray(lastMessage.tool_calls) && lastMessage.tool_calls.length > 0) {
+  private routeFromAgent(state: AgentStateType) {
+    const lastAI = this.extractLastAIMessage(state.messages);
+    if (!lastAI) {
+      throw new Error('Agent did not return a response.');
+    }
+    if (lastAI.tool_calls?.length) {
       return 'tools';
     }
-    return END;
+    return 'compose_draft';
   }
 
-  private routeFromTools(state: AgentState) {
-    if (state.requiresUserInput) {
-      return 'human';
+  private async handleSearchTool(args: { query?: string }, state: AgentStateType): Promise<ToolExecutionResult> {
+    if (!state.userId) {
+      throw new Error('User context is missing for search.');
     }
-    return 'agent';
-  }
-
-  private toExecutionResult(state: AgentState, conversationId: string): AgentExecutionResult {
-    if (state.requiresUserInput && state.clarificationQuestion) {
+    const query = args.query || this.deriveSearchQuery(state.threadSummary);
+    if (!query) {
       return {
-        status: 'NEEDS_INPUT',
-        question: state.clarificationQuestion,
-        conversationId,
-        activityLog: state.activityLog ?? [],
+        message: 'Search skipped because no query was provided.',
+        activity: 'Historical search skipped (no query).',
       };
     }
-
-    const messages = state.messages || [];
-    const lastAssistantMessage = [...messages].reverse().find((message) => message.getType() === 'ai');
-
-    const draftContent =
-      lastAssistantMessage && 'content' in lastAssistantMessage && typeof lastAssistantMessage.content === 'string'
-        ? lastAssistantMessage.content
-        : '';
-
+    const searchResults = await this.gmailService.listMessages(state.userId, undefined, 5, query);
+    const ids = (searchResults.messages ?? []).map((message) => message.id).filter(Boolean) as string[];
+    if (!ids.length) {
+      return {
+        message: 'No matching historical emails.',
+        activity: 'No matching historical emails found.',
+      };
+    }
+    const messages = await this.gmailService.getMessagesBulk(state.userId, ids, 'full');
+    const summary = this.summarizeSearchResults(messages);
     return {
-      status: 'DRAFT_READY',
-      draftContent,
-      conversationId,
-      messages,
-      activityLog: state.activityLog ?? [],
+      message: summary,
+      activity: 'Historical email context captured.',
+      searchSummary: summary,
     };
+  }
+
+  private async handleCalendarTool(
+    args: { lookAheadDays?: number },
+    state: AgentStateType,
+  ): Promise<ToolExecutionResult> {
+    if (!state.userId) {
+      throw new Error('User context is missing for calendar lookup.');
+    }
+    const days = args.lookAheadDays ?? 14;
+    const now = new Date();
+    const timeMin = now.toISOString();
+    const timeMax = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+    const events = await this.calendarService.getCalendarEvents(state.userId, {
+      timeMin,
+      timeMax,
+      maxResults: 10,
+    });
+    const summary = this.summarizeCalendar(events);
+    return {
+      message: summary,
+      activity: 'Calendar availability retrieved.',
+      calendarSummary: summary,
+    };
+  }
+
+  private async handleVectorTool(
+    args: { topic?: string },
+    _state: AgentStateType,
+  ): Promise<ToolExecutionResult> {
+    const topic = args.topic || 'general';
+    const summary = `Vector search placeholder invoked for topic: ${topic}.`;
+    return {
+      message: summary,
+      activity: 'Vector knowledge base consulted.',
+      vectorSummary: summary,
+    };
+  }
+
+  private async generateDraft(context: ComposeDraftContext) {
+    const contextSections = [
+      context.threadSummary && `Thread context:\n${context.threadSummary}`,
+      context.searchSummary && `Historical references:\n${context.searchSummary}`,
+      context.calendarSummary && `Calendar availability:\n${context.calendarSummary}`,
+      context.vectorSummary && `Knowledge base context:\n${context.vectorSummary}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const response = await this.workerModel.invoke([
+      new SystemMessage(
+        'You are an expert email writer. Return only the body of the email. Do not include metadata or JSON.',
+      ),
+      new HumanMessage(
+        [
+          context.instructions && `Supervisor note: ${context.instructions}`,
+          contextSections || 'No additional context available.',
+          'Compose the final email now.',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      ),
+    ]);
+
+    return this.renderMessageContent(response);
+  }
+
+  private summarizeThread(thread: any) {
+    const messages = thread?.messages ?? [];
+    if (!messages.length) {
+      return 'Thread is empty.';
+    }
+    const latest = messages.slice(-3);
+    return latest
+      .map((message: any, index: number) => {
+        const from = this.extractHeader(message, 'from') || 'Unknown sender';
+        const subject = this.extractHeader(message, 'subject') || 'No subject';
+        const body = this.extractBody(message);
+        const preview = body || message.snippet || '';
+        return `Message #${messages.length - latest.length + index + 1}\nFrom: ${from}\nSubject: ${subject}\nBody:\n${preview}`;
+      })
+      .join('\n');
+  }
+
+  private summarizeSearchResults(messages: Array<any | null>) {
+    if (!messages.length) {
+      return 'No historical results.';
+    }
+    return messages
+      .filter(Boolean)
+      .map((message: any) => {
+        const subject = this.extractHeader(message, 'subject') || 'No subject';
+        const from = this.extractHeader(message, 'from') || 'Unknown sender';
+        const body = this.extractBody(message) || message.snippet || '';
+        return `Subject: ${subject}\nFrom: ${from}\nBody:\n${body}`;
+      })
+      .join('\n');
+  }
+
+  private summarizeCalendar(events: any) {
+    const items = events?.items ?? [];
+    if (!items.length) {
+      return 'No upcoming events in the selected window.';
+    }
+    return items
+      .map((event: any) => {
+        const start = event.start?.dateTime || event.start?.date;
+        const end = event.end?.dateTime || event.end?.date;
+        const attendees = event.attendees?.map((a: any) => a.email).join(', ') || 'None';
+        return `${event.summary || 'Untitled'} (${start} → ${end}, attendees: ${attendees})`;
+      })
+      .join('\n');
+  }
+
+  private deriveSearchQuery(threadSummary?: string | null) {
+    const summary = (threadSummary ?? '').toLowerCase();
+    if (summary.includes('invoice') || summary.includes('payment')) {
+      return 'subject:(invoice OR payment)';
+    }
+    if (summary.includes('meeting') || summary.includes('schedule')) {
+      return 'subject:(meeting OR schedule)';
+    }
+    return 'in:anywhere';
+  }
+
+  private extractHeader(message: any, name: string) {
+    const headers = message.payload?.headers ?? [];
+    const header = headers.find((h: any) => h?.name?.toLowerCase() === name.toLowerCase());
+    return header?.value;
+  }
+
+  private extractBody(message: any) {
+    const payload = message.payload;
+    if (!payload) {
+      return '';
+    }
+
+    if (payload.body?.data) {
+      return this.decodeBody(payload.body.data);
+    }
+
+    const parts = payload.parts ?? [];
+    const textPart = parts.find((part: any) => part.mimeType === 'text/plain');
+    if (textPart?.body?.data) {
+      return this.decodeBody(textPart.body.data);
+    }
+
+    const htmlPart = parts.find((part: any) => part.mimeType === 'text/html');
+    if (htmlPart?.body?.data) {
+      return this.stripHtml(this.decodeBody(htmlPart.body.data));
+    }
+
+    for (const part of parts) {
+      if (part.body?.data) {
+        return this.decodeBody(part.body.data);
+      }
+    }
+
+    return '';
+  }
+
+  private decodeBody(data: string) {
+    return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
+  }
+
+  private stripHtml(html: string) {
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  private extractLastAIMessage(messages: BaseMessage[]) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i] instanceof AIMessage) {
+        return messages[i] as AIMessage;
+      }
+    }
+    return null;
+  }
+
+  private parseSupervisorOutcome(message: AIMessage | null): SupervisorOutcome | null {
+    if (!message) {
+      return null;
+    }
+    const content = this.renderMessageContent(message);
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed.status === 'draft' && typeof parsed.draft === 'string') {
+        return { status: 'draft', draft: parsed.draft, activity: parsed.activity };
+      }
+      if (parsed.status === 'clarification' && typeof parsed.question === 'string') {
+        return { status: 'clarification', question: parsed.question, activity: parsed.activity };
+      }
+      return null;
+    } catch (error) {
+      this.logger.warn(`Failed to parse supervisor response: ${error instanceof Error ? error.message : error}`);
+      return null;
+    }
+  }
+
+  private renderMessageContent(message: BaseMessage) {
+    if (typeof message.content === 'string') {
+      return message.content;
+    }
+    if (Array.isArray(message.content)) {
+      return message.content.map((block) => ('text' in block ? block.text : JSON.stringify(block))).join('\n');
+    }
+    return String(message.content ?? '');
   }
 
   private buildConversationId(userId: string, threadId?: string) {
@@ -380,16 +603,5 @@ export class CompositionAgentService {
     }
     return `composition-${userId}-${randomUUID()}`;
   }
-
-  private buildSystemMessage(options: ComposeAgentOptions) {
-    const metadataLines = [
-      'Conversation metadata:',
-      `- userId: ${options.userId}`,
-      `- threadId: ${options.threadId ?? 'not provided'}`,
-    ].join('\n');
-
-    return new SystemMessage(`${this.systemPrompt}\n\n${metadataLines}`);
-  }
 }
-
 
