@@ -59,6 +59,7 @@ interface ComposeDraftContext {
   calendarSummary?: string | null;
   vectorSummary?: string | null;
   instructions?: string;
+  dialogue?: BaseMessage[];
 }
 
 interface ToolExecutionResult {
@@ -87,6 +88,13 @@ const AgentState = Annotation.Root({
       if (!right) {
         return left;
       }
+      const updates = Array.isArray(right) ? right : [right];
+      return left.concat(updates);
+    },
+    default: () => [],
+  }),
+  dialogueHistory: Annotation<BaseMessage[]>({
+    reducer: (left: BaseMessage[] = [], right: BaseMessage | BaseMessage[]) => {
       const updates = Array.isArray(right) ? right : [right];
       return left.concat(updates);
     },
@@ -220,24 +228,9 @@ export class CompositionAgentService {
     try {
       const thread = await this.gmailService.getThread(state.userId, state.threadId);
       const summary = this.summarizeThread(thread);
-      const prompt = state.pendingUserPrompt ?? '';
-      const messages: BaseMessage[] = [
-        new SystemMessage(
-          [
-            'You are a helpful personal email assistant.',
-            'Use the following Gmail thread summary as the authoritative context for crafting replies.',
-            `Thread summary:\n${summary}`,
-          ].join('\n\n'),
-        ),
-      ];
-      if (prompt) {
-        messages.push(new HumanMessage(prompt));
-      }
-
       return {
         threadSummary: summary,
-        messages,
-        pendingUserPrompt: null,
+        pendingUserPrompt: state.pendingUserPrompt,
         activity: 'Loaded Gmail thread context.',
       };
     } catch (error) {
@@ -247,14 +240,22 @@ export class CompositionAgentService {
   }
 
   private async agentNode(state: AgentStateType) {
-    const aiResponse = await this.reasoningModel.invoke(state.messages, {
-      configurable: {
-        threadId: state.threadId ?? undefined,
-        userId: state.userId ?? undefined,
+    const instructionMessage = new SystemMessage(this.buildAgentLoopPrompt(state));
+    const userMessage = state.pendingUserPrompt ? new HumanMessage(state.pendingUserPrompt) : null;
+    const history = state.messages ?? [];
+    const aiResponse = await this.reasoningModel.invoke(
+      [instructionMessage, ...history, ...(userMessage ? [userMessage] : [])],
+      {
+        configurable: {
+          threadId: state.threadId ?? undefined,
+          userId: state.userId ?? undefined,
+        },
       },
-    });
+    );
     return {
       messages: [aiResponse],
+      pendingUserPrompt: null,
+      dialogueHistory: userMessage ? [userMessage] : [],
     };
   }
 
@@ -266,55 +267,55 @@ export class CompositionAgentService {
       };
     }
 
-    const toolMessages: ToolMessage[] = [];
-    const activityUpdates: string[] = [];
-    const summaryUpdates: Partial<Pick<AgentStateType, 'searchSummary' | 'calendarSummary' | 'vectorSummary'>> = {};
-
-    for (const call of lastAI.tool_calls) {
-      const handler = this.toolHandlers[call.name];
-      if (!handler) {
-        const unknownMessage = `Unknown tool "${call.name}" requested.`;
-        toolMessages.push(
-          new ToolMessage({
-            content: unknownMessage,
-            tool_call_id: call.id,
-          }),
-        );
-        activityUpdates.push(unknownMessage);
-        continue;
-      }
-
-      try {
-        const result = await handler(call.args ?? {}, state);
-        toolMessages.push(
-          new ToolMessage({
-            content: result.message,
-            tool_call_id: call.id,
-          }),
-        );
-        if (result.activity) {
-          activityUpdates.push(result.activity);
+    const results = await Promise.all(
+      lastAI.tool_calls.map(async (call) => {
+        const handler = this.toolHandlers[call.name];
+        if (!handler) {
+          const unknownMessage = `Unknown tool "${call.name}" requested.`;
+          return {
+            toolMessage: new ToolMessage({ content: unknownMessage, tool_call_id: call.id }),
+            activity: unknownMessage,
+          };
         }
+
+        try {
+          const result = await handler(call.args ?? {}, state);
+          return {
+            toolMessage: new ToolMessage({ content: result.message, tool_call_id: call.id }),
+            activity: result.activity,
+            searchSummary: result.searchSummary,
+            calendarSummary: result.calendarSummary,
+            vectorSummary: result.vectorSummary,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            toolMessage: new ToolMessage({ content: `Tool execution failed: ${message}`, tool_call_id: call.id }),
+            activity: `⚠️ ${call.name} failed: ${message}`,
+          };
+        }
+      }),
+    );
+
+    const toolMessages = results.map((result) => result.toolMessage);
+    const activityUpdates = results
+      .map((result) => result.activity)
+      .filter((entry): entry is string => Boolean(entry));
+    const summaryUpdates = results.reduce<Partial<Pick<AgentStateType, 'searchSummary' | 'calendarSummary' | 'vectorSummary'>>>(
+      (acc, result) => {
         if (result.searchSummary) {
-          summaryUpdates.searchSummary = result.searchSummary;
+          acc.searchSummary = result.searchSummary;
         }
         if (result.calendarSummary) {
-          summaryUpdates.calendarSummary = result.calendarSummary;
+          acc.calendarSummary = result.calendarSummary;
         }
         if (result.vectorSummary) {
-          summaryUpdates.vectorSummary = result.vectorSummary;
+          acc.vectorSummary = result.vectorSummary;
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        toolMessages.push(
-          new ToolMessage({
-            content: `Tool execution failed: ${message}`,
-            tool_call_id: call.id,
-          }),
-        );
-        activityUpdates.push(`⚠️ ${call.name} failed: ${message}`);
-      }
-    }
+        return acc;
+      },
+      {},
+    );
 
     return {
       messages: toolMessages,
@@ -338,6 +339,7 @@ export class CompositionAgentService {
       calendarSummary: state.calendarSummary,
       vectorSummary: state.vectorSummary,
       instructions,
+      dialogue: state.dialogueHistory,
     });
     const response = new AIMessage(
       JSON.stringify({
@@ -346,9 +348,11 @@ export class CompositionAgentService {
         activity: ['Email draft generated.'],
       }),
     );
+    const draftDialogueMessage = new AIMessage(draft);
     return {
       messages: [response],
       activity: 'Email draft generated.',
+      dialogueHistory: [draftDialogueMessage],
     };
   }
 
@@ -361,6 +365,31 @@ export class CompositionAgentService {
       return 'tools';
     }
     return 'compose_draft';
+  }
+
+  private buildAgentLoopPrompt(state: AgentStateType) {
+    const contextFlags = [
+      state.threadSummary ? 'Thread context is loaded.' : 'Thread context missing (should never happen).',
+      state.searchSummary ? 'Historical email summary available.' : 'No historical email context yet.',
+      state.calendarSummary ? 'Calendar availability captured.' : 'No calendar availability captured.',
+      state.vectorSummary ? 'Vector knowledge context available.' : 'No vector knowledge context gathered.',
+    ];
+    return [
+      'You are the planning agent responsible for deciding whether there is enough context to draft the reply.',
+      'Evaluate the currently available context. If key information is missing, call one or more tools in parallel to fetch it:',
+      '- search_related_emails: previous relevant conversations or references.',
+      '- calendar_lookup: scheduling and availability details.',
+      '- vector_lookup: internal knowledge base summaries.',
+      'Once you determine that the context is sufficient, DO NOT call any tools.',
+      'Instead, respond with clear concise drafting instructions for the writing agent.',
+      'Never ask the human follow-up questions.',
+      'Never respond to the user directly, only provide drafting instructions for the writing agent.',
+      '',
+      state.threadSummary ? `Thread summary:\n${state.threadSummary}` : '',
+      '',
+      'Current context status:',
+      ...contextFlags,
+    ].join('\n');
   }
 
   private async handleSearchTool(args: { query?: string }, state: AgentStateType): Promise<ToolExecutionResult> {
@@ -434,6 +463,7 @@ export class CompositionAgentService {
       context.searchSummary && `Historical references:\n${context.searchSummary}`,
       context.calendarSummary && `Calendar availability:\n${context.calendarSummary}`,
       context.vectorSummary && `Knowledge base context:\n${context.vectorSummary}`,
+      context.dialogue?.length && `Conversation so far:\n${this.renderDialogueTranscript(context.dialogue)}`,
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -595,6 +625,28 @@ export class CompositionAgentService {
       return message.content.map((block) => ('text' in block ? block.text : JSON.stringify(block))).join('\n');
     }
     return String(message.content ?? '');
+  }
+
+  private renderDialogueTranscript(messages: BaseMessage[]) {
+    return messages
+      .map((message) => {
+        const type = message.getType();
+        let speaker = 'Agent';
+        if (type === 'human') {
+          speaker = 'User';
+        } else if (type === 'ai') {
+          speaker = 'Agent';
+        } else if (type === 'tool') {
+          speaker = 'Tool';
+        }
+        const content = this.renderMessageContent(message);
+        if (!content) {
+          return null;
+        }
+        return `${speaker}: ${content}`;
+      })
+      .filter(Boolean)
+      .join('\n');
   }
 
   private buildConversationId(userId: string, threadId?: string) {

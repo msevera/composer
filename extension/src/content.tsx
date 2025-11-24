@@ -1,6 +1,7 @@
 import cssText from "data-text:~style.css";
 import type { PlasmoCSConfig } from "plasmo";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Loader2, RotateCcw, Square } from "lucide-react";
 import { toast, Toaster } from "sonner";
 
@@ -235,15 +236,16 @@ const PlasmoOverlay = () => {
 		if (isRunning) {
 			handleStop();
 		}
-		setConversationId(null);
+		const newConversationId = threadId ? generateConversationId() : null;
+		if (threadId) {
+			safeLocalStorageSet(threadId, newConversationId!);
+		}
+		setConversationId(newConversationId);
 		setActivityMessage(null);
 		setClarificationQuestion(null);
 		setDraftContent(null);
 		setAgentMessages([]);
 		setMessage("");
-		if (threadId) {
-			safeLocalStorageRemove(threadId);
-		}
 		toast.message("Conversation reset");
 	}, [handleStop, isRunning, threadId]);
 
@@ -524,6 +526,13 @@ function looksLikeDraft(content: string) {
 	const hasFarewell = /thanks[, ]|regards|sincerely/i.test(text);
 	const hasParagraphBreak = /\n\s*\n/.test(text);
 	return hasGreeting || hasFarewell || hasParagraphBreak;
+}
+
+function generateConversationId() {
+	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+		return `conv-${(crypto as Crypto).randomUUID()}`;
+	}
+	return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function generateMessageId() {
