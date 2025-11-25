@@ -1,6 +1,6 @@
 import cssText from "data-text:~style.css";
 import type { PlasmoCSConfig } from "plasmo";
-import type { FormEvent } from "react";
+import type { FormEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, RotateCcw, Square, Check, Minimize2, Maximize2 } from "lucide-react";
 
@@ -381,6 +381,14 @@ const PlasmoOverlay = () => {
     console.log("Agent stopped");
   }, [closeEventSource]);
 
+  const handleStopClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      handleStop();
+    },
+    [handleStop],
+  );
+
   const handleReset = useCallback(() => {
     if (isRunning) {
       closeEventSource();
@@ -556,7 +564,7 @@ const PlasmoOverlay = () => {
           />
           <Button
             type={isRunning ? "button" : "submit"}
-            onClick={isRunning ? handleStop : undefined}
+            onClick={isRunning ? handleStopClick : undefined}
             variant={isRunning ? "destructive" : "default"}
             size="sm"
           >

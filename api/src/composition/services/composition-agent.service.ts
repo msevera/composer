@@ -533,7 +533,10 @@ export class CompositionAgentService {
 
     const promptMessages = [
       new SystemMessage(
-        'You are an expert email writer. Return only the body of the email. Do not include metadata or JSON.',
+        [
+          'You are an expert email writer. Check the context and analyze how user wants to respond.',
+          'Return only the body of the email.',
+          'Do not include metadata or JSON.'].join('\n'),
       ),
       new HumanMessage(
         [
