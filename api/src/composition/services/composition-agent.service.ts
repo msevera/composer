@@ -529,7 +529,7 @@ export class CompositionAgentService {
       ),
       new HumanMessage(
         [
-          context.instructions && `Supervisor note: ${context.instructions}`,
+          // context.instructions && `Supervisor note: ${context.instructions}`,
           contextSections || 'No additional context available.',
           'Compose the final email now.',
         ]

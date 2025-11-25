@@ -380,7 +380,7 @@ const PlasmoOverlay = () => {
   const handleStop = useCallback(() => {
     closeEventSource();
     setIsRunning(false);
-    setDraftIndicator("Stopped by user.");
+    setDraftIndicator(null);
     console.log("Agent stopped");
   }, [closeEventSource]);
 
