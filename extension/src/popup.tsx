@@ -83,7 +83,7 @@ function LoginForm() {
   return (
     <Card className="border border-border/60 shadow-none">
       <CardHeader>
-        <CardTitle className="text-xl">Log in to Smail</CardTitle>
+        <CardTitle className="text-xl">Log in to Composer AI</CardTitle>
         <p className="text-sm text-muted-foreground">
           Enter your credentials to continue.
         </p>
@@ -114,7 +114,7 @@ function LoginForm() {
               autoComplete="current-password"
             />
           </div>
-          <Button type="submit" disabled={isSubmitting || !email || !password}>
+          <Button type="submit" className='w-full bg-neutral-800 hover:bg-neutral-900 normal-case tracking-[0]' disabled={isSubmitting || !email || !password}>
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -155,7 +155,7 @@ function AuthenticatedPanel({ session }: { session: SessionData }) {
           <p className="text-base font-medium">{name ?? email}</p>
           {name && <p className="text-muted-foreground">{email}</p>}
         </div>
-        <Button variant="outline" onClick={handleSignOut}>
+        <Button variant="destructive" className='text-white' onClick={handleSignOut}>
           Log out
         </Button>
       </CardContent>
