@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ComposeDraftAgentInput, ResumeDraftCompositionInput } from './dto/compose-draft-agent.dto';
-import { AgentExecutionResult, CompositionAgentService } from './services/composition-agent.service';
+import {
+  AgentExecutionResult,
+  CompositionAgentService,
+  CompositionStreamEvent,
+} from './services/composition-agent.service';
 
 @Injectable()
 export class CompositionService {
@@ -13,6 +17,24 @@ export class CompositionService {
       threadId: input.threadId,
       conversationId: input.conversationId,
     });
+  }
+
+  async composeDraftStreamWithAgent(
+    userId: string,
+    input: ComposeDraftAgentInput,
+    writer: (event: CompositionStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<AgentExecutionResult> {
+    return this.compositionAgentService.composeStream(
+      {
+        userPrompt: input.userPrompt,
+        userId: userId.toString(),
+        threadId: input.threadId,
+        conversationId: input.conversationId,
+      },
+      writer,
+      signal,
+    );
   }
 
   async resumeDraftComposition(input: ResumeDraftCompositionInput): Promise<AgentExecutionResult> {

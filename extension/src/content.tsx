@@ -2,21 +2,16 @@ import cssText from "data-text:~style.css";
 import type { PlasmoCSConfig } from "plasmo";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Loader2, RotateCcw, Square } from "lucide-react";
-import { toast, Toaster } from "sonner";
+import { Copy, RotateCcw, Square, Check } from "lucide-react";
 
 import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
-import {
-	COMPOSE_DRAFT_AGENT_MUTATION,
-	RESUME_DRAFT_COMPOSITION_MUTATION,
-} from "./lib/graphql/composition";
-import { apolloClient } from "./lib/apollo-client";
 import { cn } from "./lib/utils";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://mail.google.com/*"],
 };
+
 
 export const getStyle = () => {
   const style = document.createElement("style");
@@ -24,23 +19,31 @@ export const getStyle = () => {
   return style;
 };
 
-const MIN_TEXTAREA_HEIGHT = 21;
+const MIN_TEXTAREA_HEIGHT = 26;
+const GRAPHQL_ENDPOINT =
+  process.env.PLASMO_PUBLIC_API_URL ?? "http://localhost:4000/graphql";
+const API_BASE_URL = GRAPHQL_ENDPOINT.replace(/\/graphql$/i, "");
+const COMPOSITION_STREAM_URL = `${API_BASE_URL}/composition/stream`;
 
 const PlasmoOverlay = () => {
   const { data: session, isPending } = authClient.useSession();
   const [message, setMessage] = useState("");
-	const [isRunning, setIsRunning] = useState(false);
-	const [activityMessage, setActivityMessage] = useState<string | null>(null);
-	const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null);
-	const [draftContent, setDraftContent] = useState<string | null>(null);
-	const [agentMessages, setAgentMessages] = useState<
-		Array<{ id: string; text: string; kind: "info" | "draft" }>
-	>([]);
-	const [conversationId, setConversationId] = useState<string | null>(null);
-	const [threadId, setThreadId] = useState<string | undefined>(() => getThreadIdFromDom());
+  const [isRunning, setIsRunning] = useState(false);
+  const [agentMessages, setAgentMessages] = useState<
+    Array<{ id: string; text: string; kind: "user" | "draft" }>
+  >([]);
+  const [draftIndicator, setDraftIndicator] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [threadId, setThreadId] = useState<string | undefined>(() => getThreadIdFromDom());
   const isThreadView = useIsGmailThreadView();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const abortControllerRef = useRef<AbortController | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const currentDraftMessageIdRef = useRef<string | null>(null);
+  const lastStreamedDraftIdRef = useRef<string | null>(null);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+  const [copiedDraftId, setCopiedDraftId] = useState<string | null>(null);
+  const [errorMessages, setErrorMessages] = useState<string[]>([]);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -53,339 +56,535 @@ const PlasmoOverlay = () => {
     element.style.height = `${nextHeight}px`;
   }, [message]);
 
-	useEffect(() => {
-		const updateThreadContext = () => {
-			const id = getThreadIdFromDom();
-			setThreadId(id);
-			if (id) {
-				const storedConversation = safeLocalStorageGet(id);
-				setConversationId(storedConversation);
-			} else {
-				setConversationId(null);
-			}
-		};
+  useEffect(() => {
+    const updateThreadContext = () => {
+      const id = getThreadIdFromDom();
+      setThreadId(id);
+      if (id) {
+        const storedConversation = safeLocalStorageGet(id);
+        setConversationId(storedConversation);
+      } else {
+        setConversationId(null);
+      }
+    };
 
-		updateThreadContext();
+    updateThreadContext();
 
-		if (!isThreadView) {
-			return;
-		}
+    if (!isThreadView) {
+      return;
+    }
 
-		const observer = new MutationObserver(() => updateThreadContext());
-		observer.observe(document.body, { childList: true, subtree: true });
-		window.addEventListener("hashchange", updateThreadContext);
-		window.addEventListener("popstate", updateThreadContext);
+    const observer = new MutationObserver(() => updateThreadContext());
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("hashchange", updateThreadContext);
+    window.addEventListener("popstate", updateThreadContext);
 
-		return () => {
-			observer.disconnect();
-			window.removeEventListener("hashchange", updateThreadContext);
-			window.removeEventListener("popstate", updateThreadContext);
-		};
-	}, [isThreadView]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("hashchange", updateThreadContext);
+      window.removeEventListener("popstate", updateThreadContext);
+    };
+  }, [isThreadView]);
+
 
   const shouldRender = useMemo(
-		() => Boolean(!isPending && session && isThreadView && threadId),
-		[isPending, isThreadView, session, threadId],
+    () => Boolean(!isPending && session && isThreadView && threadId),
+    [isPending, isThreadView, session, threadId],
   );
 
-	const handleAgentResponse = useCallback(
-		(response: Record<string, any>) => {
-			if (!response) {
-				throw new Error("Invalid response from composer agent");
-			}
-
-			const nextConversationId = response.conversationId ?? null;
-			if (threadId && nextConversationId) {
-				safeLocalStorageSet(threadId, nextConversationId);
-			}
-			setConversationId(nextConversationId);
-
-			const latestActivity = getLatestActivity(response.activity);
-			setActivityMessage(latestActivity);
-
-			const hasFailure = activityHasFailure(response.activity);
-			const questionText = "question" in response ? response.question : undefined;
-			const draftText = "draftContent" in response ? response.draftContent : undefined;
-			const isDraftResponse =
-				response.status === "DRAFT_READY" &&
-				Boolean(draftText) &&
-				!hasFailure &&
-				looksLikeDraft(draftText ?? "");
-			const displayText = draftText ?? questionText ?? "";
-
-			if (questionText) {
-				setClarificationQuestion(questionText);
-				setDraftContent(null);
-				toast.message("Agent needs clarification");
-			} else if (isDraftResponse && draftText) {
-				setClarificationQuestion(null);
-				setDraftContent(draftText);
-				toast.success("Draft ready");
-			} else {
-				setClarificationQuestion(null);
-				setDraftContent(null);
-			}
-
-			if (displayText && (!questionText || isDraftResponse)) {
-				setAgentMessages((prev) => [
-					...prev,
-					{
-						id: generateMessageId(),
-						text: displayText,
-						kind: isDraftResponse ? "draft" : "info",
-					},
-				]);
-			}
-
-			if (!questionText && !isDraftResponse) {
-				setActivityMessage(latestActivity ?? "Agent idle.");
-			}
-
-			setMessage("");
-		},
-		[threadId],
-	);
-
-	const handleSubmit = useCallback(
-		async (event?: FormEvent<HTMLFormElement>) => {
-			event?.preventDefault();
-			if (isRunning) {
-				return;
-			}
-
-    if (!message.trim()) {
-      toast.error("Please enter a message");
-      return;
-    }
-
-    if (!threadId) {
-				toast.error("Unable to find the Gmail thread. Please refresh and try again.");
-      return;
-    }
-
-			const isClarification = Boolean(clarificationQuestion && conversationId);
-			setIsRunning(true);
-			setActivityMessage(isClarification ? "Sending clarification…" : "Starting agent…");
-
-			const abortController = new AbortController();
-			abortControllerRef.current = abortController;
-
-			try {
-				const variables = isClarification
-					? {
-							input: {
-								conversationId: conversationId!,
-								userResponse: message.trim(),
-							},
-					  }
-					: {
-          input: {
-								userPrompt: message.trim(),
-            threadId,
-								conversationId: conversationId ?? undefined,
-							},
-					  };
-
-				const { data } = await apolloClient.mutate({
-					mutation: isClarification
-						? RESUME_DRAFT_COMPOSITION_MUTATION
-						: COMPOSE_DRAFT_AGENT_MUTATION,
-					variables,
-					context: {
-						fetchOptions: {
-							signal: abortController.signal,
-          },
-        },
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (conversationScrollRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (conversationScrollRef.current) {
+          conversationScrollRef.current.scrollTo({
+            top: conversationScrollRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }
       });
+    }
+  }, [agentMessages, draftIndicator, errorMessages]);
 
-				const response = isClarification
-					? data?.resumeDraftComposition
-					: data?.composeDraftWithAgent;
-				handleAgentResponse(response);
+  const handleAgentResponse = useCallback(
+    (response: Record<string, any>) => {
+      if (!response) {
+        throw new Error("Invalid response from composer agent");
+      }
+
+      const nextConversationId = response.conversationId ?? null;
+      if (threadId && nextConversationId) {
+        safeLocalStorageSet(threadId, nextConversationId);
+      }
+      setConversationId(nextConversationId);
+
+      const latestActivity = getLatestActivity(response.activity);
+
+      const hasFailure = activityHasFailure(response.activity);
+      const draftText = "draftContent" in response ? response.draftContent : undefined;
+      const isDraftResponse =
+        response.status === "DRAFT_READY" &&
+        Boolean(draftText) &&
+        !hasFailure;
+      const displayText = draftText;
+      const streamedDraftId = lastStreamedDraftIdRef.current;
+
+      if (displayText && isDraftResponse && !streamedDraftId) {
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            id: generateMessageId(),
+            text: displayText,
+            kind: "draft",
+          },
+        ]);
+      }
+
+      setDraftIndicator(null);
+      lastStreamedDraftIdRef.current = null;
+
+      if (!isDraftResponse && latestActivity) {
+        setDraftIndicator(latestActivity);
+      }
+
+      setMessage("");
+    },
+    [threadId],
+  );
+
+  const closeEventSource = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      closeEventSource();
+    };
+  }, [closeEventSource]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleStreamEvent = useCallback(
+    (event: ComposeStreamEvent) => {
+      switch (event.type) {
+        case "activity":
+          setDraftIndicator(event.message);
+          break;
+        case "tool_start": {
+          const text = `Executing ${formatToolName(event.tool)}…`;
+          setDraftIndicator(text);
+          break;
+        }
+        case "tool_end": {
+          const text = `${formatToolName(event.tool)} completed.`;
+          setDraftIndicator(text);
+          break;
+        }
+        case "tool_error": {
+          const text = `${formatToolName(event.tool)} failed: ${event.message}`;
+          console.error(text);
+          setDraftIndicator(text);
+          setErrorMessages((prev) => [...prev, text]);
+          break;
+        }
+        case "draft_stream_started": {
+          setDraftIndicator(null);
+          const draftId = generateMessageId();
+          currentDraftMessageIdRef.current = draftId;
+          setAgentMessages((prev) => [
+            ...prev,
+            {
+              id: draftId,
+              text: "",
+              kind: "draft",
+            },
+          ]);
+          break;
+        }
+        case "draft_chunk": {
+          setDraftIndicator(null);
+          const draftId = currentDraftMessageIdRef.current;
+          if (!draftId) {
+            const fallbackId = generateMessageId();
+            currentDraftMessageIdRef.current = fallbackId;
+            setAgentMessages((prev) => [
+              ...prev,
+              {
+                id: fallbackId,
+                text: event.content,
+                kind: "draft",
+              },
+            ]);
+          } else {
+            setAgentMessages((prev) =>
+              prev.map((entry) =>
+                entry.id === draftId
+                  ? {
+                    ...entry,
+                    text: `${entry.text}${event.content}`,
+                  }
+                  : entry,
+              ),
+            );
+          }
+          break;
+        }
+        case "draft_stream_finished": {
+          setDraftIndicator(null);
+          const draftId = currentDraftMessageIdRef.current;
+          if (!draftId) {
+            const newId = generateMessageId();
+            setAgentMessages((prev) => [
+              ...prev,
+              {
+                id: newId,
+                text: event.draft,
+                kind: "draft",
+              },
+            ]);
+            lastStreamedDraftIdRef.current = newId;
+          } else {
+            setAgentMessages((prev) =>
+              prev.map((entry) =>
+                entry.id === draftId
+                  ? {
+                    ...entry,
+                    text: event.draft,
+                  }
+                  : entry,
+              ),
+            );
+            lastStreamedDraftIdRef.current = draftId;
+          }
+          currentDraftMessageIdRef.current = null;
+          break;
+        }
+        case "error":
+          console.error(event.message);
+          closeEventSource();
+          setDraftIndicator(null);
+          setErrorMessages((prev) => [...prev, event.message]);
+          setIsRunning(false);
+          break;
+        case "final":
+          handleAgentResponse(event.payload);
+          closeEventSource();
+          setDraftIndicator(null);
+          setIsRunning(false);
+          break;
+        default:
+          break;
+      }
+    },
+    [closeEventSource, handleAgentResponse],
+  );
+
+  const startStream = useCallback(
+    (inputText: string) => {
+      if (!threadId) {
+        console.error("Unable to find the Gmail thread. Please refresh and try again.");
+        return;
+      }
+      setDraftIndicator(null);
+      setAgentMessages((prev) => [
+        ...prev,
+        {
+          id: generateMessageId(),
+          text: inputText,
+          kind: "user",
+        },
+      ]);
+      const params = new URLSearchParams({
+        threadId,
+        userPrompt: inputText,
+      });
+      if (conversationId) {
+        params.set("conversationId", conversationId);
+      }
+
+      const source = new EventSource(`${COMPOSITION_STREAM_URL}?${params.toString()}`, {
+        withCredentials: true,
+      });
+      eventSourceRef.current = source;
+      source.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data) as ComposeStreamEvent;
+          handleStreamEvent(payload);
+        } catch (error) {
+          console.error(error);
+        }
+      };
+      source.onerror = () => {
+        closeEventSource();
+        setIsRunning(false);
+        console.error("Stream interrupted. Please try again.");
+      };
+    },
+    [threadId, conversationId, handleStreamEvent, closeEventSource],
+  );
+
+  const handleSubmit = useCallback(
+    (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (isRunning) {
+        return;
+      }
+
+      if (!message.trim()) {
+        console.error("Please enter a message");
+        return;
+      }
+
+      if (!threadId) {
+        console.error("Unable to find the Gmail thread. Please refresh and try again.");
+        return;
+      }
+
+      setIsRunning(true);
+      setDraftIndicator("Starting agent…");
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+        copiedTimeoutRef.current = null;
+      }
+      setErrorMessages([]);
+      setCopiedDraftId(null);
+      startStream(message.trim());
+      setMessage("");
+    },
+    [isRunning, message, threadId, startStream],
+  );
+
+  const handleStop = useCallback(() => {
+    closeEventSource();
+    setIsRunning(false);
+    setDraftIndicator("Stopped by user.");
+    console.log("Agent stopped");
+  }, [closeEventSource]);
+
+  const handleReset = useCallback(() => {
+    if (isRunning) {
+      closeEventSource();
+      setIsRunning(false);
+    }
+    const newConversationId = threadId ? generateConversationId() : null;
+    if (threadId && newConversationId) {
+      safeLocalStorageSet(threadId, newConversationId);
+    }
+    setConversationId(newConversationId);
+    setAgentMessages([]);
+    setDraftIndicator(null);
+    setCopiedDraftId(null);
+    setErrorMessages([]);
+    setMessage("");
+    if (copiedTimeoutRef.current) {
+      clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = null;
+    }
+    currentDraftMessageIdRef.current = null;
+    lastStreamedDraftIdRef.current = null;
+    console.log("Conversation reset");
+  }, [closeEventSource, isRunning, threadId]);
+
+  const handleCopyDraft = useCallback(async (content: string, messageId?: string) => {
+    if (!content) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(content);
+      console.log("Draft copied to clipboard");
+      setCopiedDraftId(messageId ?? null);
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+      copiedTimeoutRef.current = setTimeout(() => {
+        setCopiedDraftId(null);
+        copiedTimeoutRef.current = null;
+      }, 2000);
     } catch (error) {
-				if ((error as Error)?.name === "AbortError") {
-					toast.message("Agent stopped");
-					return;
-				}
-				const messageText =
-        error instanceof Error ? error.message : "Failed to compose draft. Please try again.";
-				toast.error(messageText);
-    } finally {
-				setIsRunning(false);
-				abortControllerRef.current = null;
-			}
-		},
-		[
-			clarificationQuestion,
-			conversationId,
-			handleAgentResponse,
-			isRunning,
-			message,
-			threadId,
-		],
-	);
+      const messageText =
+        error instanceof Error ? error.message : "Unable to copy draft. Please copy manually.";
+      console.log(messageText);
+    }
+  }, []);
 
-	const handleStop = useCallback(() => {
-		abortControllerRef.current?.abort();
-		abortControllerRef.current = null;
-		setIsRunning(false);
-		setActivityMessage("Stopped by user.");
-	}, []);
-
-	const handleReset = useCallback(() => {
-		if (isRunning) {
-			handleStop();
-		}
-		const newConversationId = threadId ? generateConversationId() : null;
-		if (threadId) {
-			safeLocalStorageSet(threadId, newConversationId!);
-		}
-		setConversationId(newConversationId);
-		setActivityMessage(null);
-		setClarificationQuestion(null);
-		setDraftContent(null);
-		setAgentMessages([]);
-		setMessage("");
-		toast.message("Conversation reset");
-	}, [handleStop, isRunning, threadId]);
-
-	const handleCopyDraft = useCallback(async () => {
-		if (!draftContent) {
-			return;
-		}
-		try {
-			await navigator.clipboard.writeText(draftContent);
-			toast.success("Draft copied to clipboard");
-		} catch (error) {
-			const messageText =
-				error instanceof Error ? error.message : "Unable to copy draft. Please copy manually.";
-			toast.error(messageText);
-		}
-	}, [draftContent]);
-
-	if (!shouldRender) {
-		return null;
-	}
+  if (!shouldRender) {
+    return null;
+  }
 
   return (
-    <>
-      <Toaster position="top-center" />
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
-        <form
-          onSubmit={handleSubmit}
-					className="pointer-events-auto w-full max-w-xl rounded-3xl bg-black/80 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur"
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
+      <form
+        onSubmit={handleSubmit}
+        className="pointer-events-auto w-full max-w-xl rounded-[28px] bg-stone-900 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur flex flex-col max-h-[50vh]"
+      >
+        <div className="flex-shrink-0">
+          {agentMessages.length > 0 && (
+            <div className="p-4 flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Draft Composer</p>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={handleReset}
+              >
+                <RotateCcw className="mr-0.5 h-3 w-3" />
+                reset
+              </Button>             
+            </div>
+          )}
+        </div>
+
+        <div
+          ref={conversationScrollRef}
+          className={cn(
+            "flex-1 overflow-y-auto space-y-3 text-sm text-neutral-200",
+            agentMessages.length > 0 || draftIndicator ? "p-4 pt-0" : "p-0",
+          )}
         >
-					<div className="mb-3 flex items-center justify-between">
-						<p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Snail Composer</p>
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="text-[11px] font-semibold uppercase tracking-[0.2em] text-neutral-300 hover:text-white"
-							onClick={handleReset}
-						>
-							<RotateCcw className="mr-1 h-3 w-3" />
-							Reset
-						</Button>
-					</div>
+            {(agentMessages.length > 0 || draftIndicator) && (
+              <div className="space-y-2 text-xs text-neutral-100">
+                {agentMessages.map((messageEntry) =>
+                  messageEntry.kind === "user" ? (
+                    <div
+                      key={messageEntry.id}
+                      className="rounded-2xl border px-3 py-2 whitespace-pre-wrap border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                    >
+                      {messageEntry.text}
+                    </div>
+                  ) : (
+                    <DraftBubble
+                      key={messageEntry.id}
+                      text={messageEntry.text}
+                      copied={copiedDraftId === messageEntry.id}
+                      onCopy={() => void handleCopyDraft(messageEntry.text, messageEntry.id)}
+                    />
+                  ),
+                )}
+                {draftIndicator && <DraftBubble indicator={draftIndicator} />}
+              </div>
+            )}
+            {errorMessages.length > 0 && (
+              <div className="space-y-2 text-xs">
+                {errorMessages.map((error, index) => (
+                  <div
+                    key={`error-${index}`}
+                    className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-100"
+                  >
+                    {error}
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
 
-					<div className="space-y-3 text-sm text-neutral-200">
-						{activityMessage && (
-							<div className="flex items-center gap-2 rounded-2xl bg-white/5 p-3 text-xs text-neutral-200">
-								<span className="h-2 w-2 rounded-full bg-emerald-300" />
-								<span>{activityMessage}</span>
-							</div>
-						)}
-
-						{agentMessages.length > 0 && (
-							<div className="space-y-2 text-xs text-neutral-100">
-								{agentMessages.map((messageEntry) => (
-									<div
-										key={messageEntry.id}
-										className="rounded-2xl border border-white/5 bg-white/5 px-3 py-2"
-									>
-										{messageEntry.text}
-									</div>
-								))}
-							</div>
-						)}
-
-						{clarificationQuestion && (
-							<div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
-								<p className="text-[10px] uppercase tracking-[0.3em] text-amber-300">
-									Clarification Needed
-								</p>
-								<p className="mt-1">{clarificationQuestion}</p>
-							</div>
-						)}
-
-						{draftContent && (
-							<div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-neutral-100">
-								<div className="mb-2 flex items-center justify-between">
-									<p className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">
-										Draft Output
-									</p>
-									<Button
-										type="button"
-										variant="ghost"
-										size="sm"
-										className="text-[11px] font-semibold uppercase tracking-[0.2em] text-neutral-100 hover:text-white"
-										onClick={handleCopyDraft}
-									>
-										<Copy className="mr-1 h-3 w-3" />
-										Copy
-									</Button>
-								</div>
-								<pre className="whitespace-pre-wrap text-xs text-neutral-100">{draftContent}</pre>
-							</div>
-						)}
-					</div>
-
-					<div className="mt-4 flex w-full items-end gap-2 rounded-2xl bg-gradient-to-r from-stone-900 via-black to-stone-900 px-3 py-3">
+        <div className="flex-shrink-0 flex w-full items-end gap-2 rounded-[28px] p-2.5 pl-5 bg-stone-900 px-3 py-3">
             <textarea
               ref={textareaRef}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" && !event.shiftKey) {
-									event.preventDefault();
-									void (isRunning ? handleStop() : handleSubmit());
-								}
-							}}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void (isRunning ? handleStop() : handleSubmit());
+                }
+              }}
               rows={1}
-							placeholder={
-								clarificationQuestion
-									? "Answer the agent's question..."
-									: "Tell the agent what you need"
-							}
-              className="max-h-40 min-h-[21px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
+              placeholder="Write a brief response"
+              className="max-h-40 min-h-[26px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
             />
             <Button
-							type={isRunning ? "button" : "submit"}
-							onClick={isRunning ? handleStop : undefined}
-							disabled={!message.trim() && !isRunning}
+              type={isRunning ? "button" : "submit"}
+              onClick={isRunning ? handleStop : undefined}
+              disabled={!message.trim() && !isRunning}
+              variant={isRunning ? "destructive" : "default"}
               size="sm"
-							className={cn(
-								"self-end h-9 rounded-full px-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition",
-								isRunning ? "bg-red-500/80 hover:bg-red-500" : "bg-white/10 hover:bg-white/20",
-							)}
+              // className={cn(
+              //   "self-end h-9 rounded-full px-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition",
+              //   isRunning ? "bg-red-500/80 hover:bg-red-500" : "bg-white/10 hover:bg-white/20",
+              // )}
             >
-							{isRunning ? (
+              {isRunning ? (
                 <>
-									<Square className="mr-2 h-3.5 w-3.5" />
-									Stop
+                  <Square className="mr-2 h-3.5 w-3.5" />
+                  Stop
                 </>
               ) : (
-								<>
-									<Loader2 className="mr-2 h-3.5 w-3.5 opacity-0" />
-									Send
-								</>
+                <>
+                  {/* <Loader2 className="mr-2 h-3.5 w-3.5 opacity-0" /> */}
+                  Compose
+                </>
               )}
             </Button>
-          </div>
-        </form>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+interface DraftBubbleProps {
+  text?: string;
+  onCopy?: () => void;
+  indicator?: string | null;
+  copied?: boolean;
+}
+
+const DraftBubble = ({ text, onCopy, indicator, copied }: DraftBubbleProps) => {
+  const hasDraftText = Boolean(text);
+  const indicatorLabel = indicator ?? "Preparing draft…";
+  const showCopyButton = hasDraftText && onCopy;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-neutral-100">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">Draft Output</p>
+        {showCopyButton ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className={cn(
+              "text-[11px]",
+              copied
+                ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                : "text-neutral-100 hover:text-white",
+            )}
+            onClick={onCopy}
+          >
+            {copied ? <Check className="mr-1 h-3 w-3" /> : <Copy className="mr-1 h-3 w-3" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        ) : (
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
+            {indicatorLabel}
+          </span>
+        )}
       </div>
-    </>
+      {hasDraftText ? (
+        <pre className="whitespace-pre-wrap text-xs text-neutral-100">{text}</pre>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-xs text-neutral-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
+            <span className="whitespace-pre-wrap">{indicatorLabel}</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="h-3 rounded-md bg-white/10 animate-pulse" />
+            <div className="h-3 rounded-md bg-white/10 animate-pulse delay-75" />
+            <div className="h-3 rounded-md bg-white/10 animate-pulse delay-150 w-3/4" />
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -476,68 +675,85 @@ function getThreadIdFromDom() {
 }
 
 function safeLocalStorageGet(threadId: string) {
-	try {
-		return window.localStorage.getItem(getConversationStorageKey(threadId));
-	} catch {
-		return null;
-	}
+  try {
+    return window.localStorage.getItem(getConversationStorageKey(threadId));
+  } catch {
+    return null;
+  }
 }
 
 function safeLocalStorageSet(threadId: string, conversationId: string) {
-	try {
-		window.localStorage.setItem(getConversationStorageKey(threadId), conversationId);
-	} catch {
-		// ignore write errors
-	}
+  try {
+    window.localStorage.setItem(getConversationStorageKey(threadId), conversationId);
+  } catch {
+    // ignore write errors
+  }
 }
 
 function safeLocalStorageRemove(threadId: string) {
-	try {
-		window.localStorage.removeItem(getConversationStorageKey(threadId));
-	} catch {
-		// ignore remove errors
-	}
+  try {
+    window.localStorage.removeItem(getConversationStorageKey(threadId));
+  } catch {
+    // ignore remove errors
+  }
 }
 
 function getConversationStorageKey(threadId: string) {
-	return `snail-conversation-${threadId}`;
+  return `snail-conversation-${threadId}`;
 }
 
+type ComposeStreamEvent =
+  | { type: "activity"; message: string }
+  | { type: "tool_start"; tool: string }
+  | { type: "tool_end"; tool: string }
+  | { type: "tool_error"; tool: string; message: string }
+  | { type: "draft_stream_started" }
+  | { type: "draft_chunk"; content: string }
+  | { type: "draft_stream_finished"; draft: string }
+  | { type: "final"; payload: Record<string, any> }
+  | { type: "error"; message: string };
+
 function getLatestActivity(activity?: string[] | null) {
-	if (!activity?.length) {
-		return null;
-	}
-	return activity[activity.length - 1] ?? null;
+  if (!activity?.length) {
+    return null;
+  }
+  return activity[activity.length - 1] ?? null;
 }
 
 function activityHasFailure(activity?: string[] | null) {
-	if (!activity?.length) {
-		return false;
-	}
-	return activity.some((entry) => entry.toLowerCase().includes("failed"));
+  if (!activity?.length) {
+    return false;
+  }
+  return activity.some((entry) => entry.toLowerCase().includes("failed"));
 }
 
 function looksLikeDraft(content: string) {
-	const text = content.trim();
-	if (text.length < 60) {
-		return false;
-	}
-	const hasGreeting = /^hi |^hello |^dear /i.test(text);
-	const hasFarewell = /thanks[, ]|regards|sincerely/i.test(text);
-	const hasParagraphBreak = /\n\s*\n/.test(text);
-	return hasGreeting || hasFarewell || hasParagraphBreak;
+  const text = content.trim();
+  if (text.length < 60) {
+    return false;
+  }
+  const hasGreeting = /^hi |^hello |^dear /i.test(text);
+  const hasFarewell = /thanks[, ]|regards|sincerely/i.test(text);
+  const hasParagraphBreak = /\n\s*\n/.test(text);
+  return hasGreeting || hasFarewell || hasParagraphBreak;
 }
 
 function generateConversationId() {
-	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-		return `conv-${(crypto as Crypto).randomUUID()}`;
-	}
-	return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `conv-${(crypto as Crypto).randomUUID()}`;
+  }
+  return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function generateMessageId() {
-	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-		return (crypto as Crypto).randomUUID();
-	}
-	return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return (crypto as Crypto).randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatToolName(name: string) {
+  return name
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

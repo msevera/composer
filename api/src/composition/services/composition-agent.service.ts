@@ -7,7 +7,15 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
-import { Annotation, CompiledStateGraph, END, MessagesAnnotation, START, StateGraph } from '@langchain/langgraph';
+import {
+  Annotation,
+  CompiledStateGraph,
+  END,
+  MessagesAnnotation,
+  START,
+  StateGraph,
+  writer as graphWriter,
+} from '@langchain/langgraph';
 import { MemorySaver } from '@langchain/langgraph';
 
 export type AgentDraftReady = {
@@ -52,6 +60,21 @@ interface SupervisorClarificationResult {
 }
 
 type SupervisorOutcome = SupervisorDraftResult | SupervisorClarificationResult;
+
+export type CompositionStreamEvent =
+  | { type: 'activity'; message: string }
+  | { type: 'tool_start'; tool: string }
+  | { type: 'tool_end'; tool: string }
+  | { type: 'tool_error'; tool: string; message: string }
+  | { type: 'draft_stream_started' }
+  | { type: 'draft_chunk'; content: string }
+  | { type: 'draft_stream_finished'; draft: string }
+  | { type: 'error'; message: string };
+
+interface ComposeExecutionConfig {
+  writer?: (event: CompositionStreamEvent) => void;
+  signal?: AbortSignal;
+}
 
 interface ComposeDraftContext {
   threadSummary: string;
@@ -99,6 +122,10 @@ const AgentState = Annotation.Root({
       return left.concat(updates);
     },
     default: () => [],
+  }),
+  streamingEnabled: Annotation<boolean>({
+    reducer: (_left: boolean, right: boolean) => right,
+    default: () => false,
   }),
   userId: Annotation<string | null>(),
   threadId: Annotation<string | null>(),
@@ -149,6 +176,24 @@ export class CompositionAgentService {
     if (!options.threadId) {
       throw new Error('threadId is required to compose a draft.');
     }
+    return this.executeCompose(options);
+  }
+
+  async composeStream(
+    options: ComposeAgentOptions,
+    writer: (event: CompositionStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<AgentExecutionResult> {
+    if (!options.threadId) {
+      throw new Error('threadId is required to compose a draft.');
+    }
+    return this.executeCompose(options, { writer, signal });
+  }
+
+  private async executeCompose(
+    options: ComposeAgentOptions,
+    execConfig: ComposeExecutionConfig = {},
+  ): Promise<AgentExecutionResult> {
     const conversationId = options.conversationId || this.buildConversationId(options.userId, options.threadId);
 
     const finalState = await this.agentGraph.invoke(
@@ -158,11 +203,14 @@ export class CompositionAgentService {
         userId: options.userId,
         threadId: options.threadId,
         pendingUserPrompt: options.userPrompt,
+        streamingEnabled: Boolean(execConfig.writer),
       },
       {
         configurable: {
           thread_id: conversationId,
+          writer: execConfig.writer,
         },
+        signal: execConfig.signal,
       },
     );
 
@@ -226,8 +274,10 @@ export class CompositionAgentService {
     }
 
     try {
+      this.emitEvent({ type: 'activity', message: 'Loading Gmail thread…' });
       const thread = await this.gmailService.getThread(state.userId, state.threadId);
       const summary = this.summarizeThread(thread);
+      this.emitEvent({ type: 'activity', message: 'Loaded Gmail thread context.' });
       return {
         threadSummary: summary,
         pendingUserPrompt: state.pendingUserPrompt,
@@ -235,6 +285,7 @@ export class CompositionAgentService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.emitEvent({ type: 'error', message: `Failed to load thread: ${message}` });
       throw new Error(`Failed to load Gmail thread: ${message}`);
     }
   }
@@ -279,7 +330,9 @@ export class CompositionAgentService {
         }
 
         try {
+          this.emitEvent({ type: 'tool_start', tool: call.name });
           const result = await handler(call.args ?? {}, state);
+          this.emitEvent({ type: 'tool_end', tool: call.name });
           return {
             toolMessage: new ToolMessage({ content: result.message, tool_call_id: call.id }),
             activity: result.activity,
@@ -289,6 +342,7 @@ export class CompositionAgentService {
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          this.emitEvent({ type: 'tool_error', tool: call.name, message });
           return {
             toolMessage: new ToolMessage({ content: `Tool execution failed: ${message}`, tool_call_id: call.id }),
             activity: `⚠️ ${call.name} failed: ${message}`,
@@ -333,6 +387,7 @@ export class CompositionAgentService {
       throw new Error('Agent did not provide final drafting instructions.');
     }
     const instructions = this.renderMessageContent(lastAI);
+    this.emitEvent({ type: 'activity', message: 'Generating email draft…' });
     const draft = await this.generateDraft({
       threadSummary: state.threadSummary,
       searchSummary: state.searchSummary,
@@ -340,7 +395,7 @@ export class CompositionAgentService {
       vectorSummary: state.vectorSummary,
       instructions,
       dialogue: state.dialogueHistory,
-    });
+    }, Boolean(state.streamingEnabled));
     const response = new AIMessage(
       JSON.stringify({
         status: 'draft',
@@ -457,7 +512,7 @@ export class CompositionAgentService {
     };
   }
 
-  private async generateDraft(context: ComposeDraftContext) {
+  private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
     const contextSections = [
       context.threadSummary && `Thread context:\n${context.threadSummary}`,
       context.searchSummary && `Historical references:\n${context.searchSummary}`,
@@ -468,7 +523,7 @@ export class CompositionAgentService {
       .filter(Boolean)
       .join('\n\n');
 
-    const response = await this.workerModel.invoke([
+    const promptMessages = [
       new SystemMessage(
         'You are an expert email writer. Return only the body of the email. Do not include metadata or JSON.',
       ),
@@ -481,8 +536,24 @@ export class CompositionAgentService {
           .filter(Boolean)
           .join('\n\n'),
       ),
-    ]);
+    ];
 
+    if (streamingEnabled) {
+      this.emitEvent({ type: 'draft_stream_started' });
+      let accumulated = '';
+      const stream = await this.workerModel.stream(promptMessages);
+      for await (const chunk of stream) {
+        const chunkText = this.renderMessageContent(chunk);
+        if (chunkText) {
+          accumulated += chunkText;
+          this.emitEvent({ type: 'draft_chunk', content: chunkText });
+        }
+      }
+      this.emitEvent({ type: 'draft_stream_finished', draft: accumulated });
+      return accumulated;
+    }
+
+    const response = await this.workerModel.invoke(promptMessages);
     return this.renderMessageContent(response);
   }
 
@@ -625,6 +696,15 @@ export class CompositionAgentService {
       return message.content.map((block) => ('text' in block ? block.text : JSON.stringify(block))).join('\n');
     }
     return String(message.content ?? '');
+  }
+
+  private emitEvent(event: CompositionStreamEvent) {
+    try {
+      graphWriter(event);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private renderDialogueTranscript(messages: BaseMessage[]) {

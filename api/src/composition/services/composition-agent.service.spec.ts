@@ -6,6 +6,7 @@ import { CalendarService } from '../../gmail/calendar.service';
 
 const mockBoundInvoke = jest.fn();
 const mockWorkerInvoke = jest.fn();
+const mockWorkerStream = jest.fn();
 const mockBindTools = jest.fn();
 let chatConstructorCount = 0;
 
@@ -16,12 +17,14 @@ jest.mock('@langchain/openai', () => ({
       return {
         bindTools: mockBindTools,
         invoke: jest.fn(),
+        stream: jest.fn(),
       };
     }
     chatConstructorCount += 1;
     return {
       bindTools: jest.fn(),
       invoke: mockWorkerInvoke,
+      stream: mockWorkerStream,
     };
   }),
 }));
@@ -44,6 +47,7 @@ describe('CompositionAgentService', () => {
     chatConstructorCount = 0;
     mockBoundInvoke.mockReset();
     mockWorkerInvoke.mockReset();
+    mockWorkerStream.mockReset();
     mockBindTools.mockReset();
     mockBindTools.mockReturnValue({
       invoke: mockBoundInvoke,
@@ -62,6 +66,9 @@ describe('CompositionAgentService', () => {
         content: 'Draft from worker model',
       }),
     );
+    mockWorkerStream.mockImplementation(async function* streamMock() {
+      // no streaming in tests by default
+    });
   });
 
   it('returns draft when supervisor produces draft outcome', async () => {
