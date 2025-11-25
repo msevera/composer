@@ -78,6 +78,7 @@ interface ComposeExecutionConfig {
 
 interface ComposeDraftContext {
   threadSummary: string;
+  recipientSummary?: string | null;
   searchSummary?: string | null;
   calendarSummary?: string | null;
   vectorSummary?: string | null;
@@ -103,6 +104,7 @@ interface AgentToolDefinition {
 const AgentState = Annotation.Root({
   ...MessagesAnnotation.spec,
   threadSummary: Annotation<string | null>(),
+  recipientSummary: Annotation<string | null>(),
   searchSummary: Annotation<string | null>(),
   calendarSummary: Annotation<string | null>(),
   vectorSummary: Annotation<string | null>(),
@@ -137,8 +139,8 @@ type AgentStateType = typeof AgentState.State;
 @Injectable()
 export class CompositionAgentService {
   private readonly logger = new Logger(CompositionAgentService.name);
-  private readonly supervisorModel: ChatOpenAI;
-  private readonly workerModel: ChatOpenAI;
+  private readonly researchModel: ChatOpenAI;
+  private readonly draftCreatorModel: ChatOpenAI;
   private readonly reasoningModel: { invoke: (messages: BaseMessage[], config?: unknown) => Promise<AIMessage> };
   private readonly toolHandlers: Record<string, ToolHandler>;
   private readonly agentGraph: CompiledStateGraph<any, any, any, any, any, any>;
@@ -148,13 +150,12 @@ export class CompositionAgentService {
     private readonly gmailService: GmailService,
     private readonly calendarService: CalendarService,
   ) {
-    const modelName = this.configService.get<string>('COMPOSITION_AGENT_MODEL') || 'gpt-4o';
-    this.supervisorModel = new ChatOpenAI({ model: modelName, temperature: 0 });
-    this.workerModel = new ChatOpenAI({ model: modelName, temperature: 0.2 });
+    this.researchModel = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 });
+    this.draftCreatorModel = new ChatOpenAI({ model: 'gpt-4o', temperature: 0.2 });
 
     const toolDefinitions = this.buildAgentTools();
     this.toolHandlers = Object.fromEntries(toolDefinitions.map((definition) => [definition.metadata.name, definition.handler]));
-    this.reasoningModel = this.supervisorModel.bindTools(toolDefinitions.map((definition) => definition.metadata));
+    this.reasoningModel = this.researchModel.bindTools(toolDefinitions.map((definition) => definition.metadata));
 
     const builder = new StateGraph(AgentState)
       .addNode('load_thread', this.loadThreadNode.bind(this))
@@ -276,10 +277,12 @@ export class CompositionAgentService {
     try {
       this.emitEvent({ type: 'activity', message: 'Loading Gmail thread…' });
       const thread = await this.gmailService.getThread(state.userId, state.threadId);
-      const summary = this.summarizeThread(thread);
+      const summary = this.gmailService.summarizeThread(thread);
+      const recipientSummary = this.gmailService.buildRecipientSummary(thread);
       this.emitEvent({ type: 'activity', message: 'Loaded Gmail thread context.' });
       return {
         threadSummary: summary,
+        recipientSummary,
         pendingUserPrompt: state.pendingUserPrompt,
         activity: 'Loaded Gmail thread context.',
       };
@@ -390,6 +393,7 @@ export class CompositionAgentService {
     this.emitEvent({ type: 'activity', message: 'Generating email draft…' });
     const draft = await this.generateDraft({
       threadSummary: state.threadSummary,
+      recipientSummary: state.recipientSummary,
       searchSummary: state.searchSummary,
       calendarSummary: state.calendarSummary,
       vectorSummary: state.vectorSummary,
@@ -428,6 +432,7 @@ export class CompositionAgentService {
       state.searchSummary ? 'Historical email summary available.' : 'No historical email context yet.',
       state.calendarSummary ? 'Calendar availability captured.' : 'No calendar availability captured.',
       state.vectorSummary ? 'Vector knowledge context available.' : 'No vector knowledge context gathered.',
+      state.recipientSummary ? 'Recipient targeting identified.' : 'Recipient targeting missing.',
     ];
     return [
       'You are the planning agent responsible for deciding whether there is enough context to draft the reply.',
@@ -441,6 +446,8 @@ export class CompositionAgentService {
       'Never respond to the user directly, only provide drafting instructions for the writing agent.',
       '',
       state.threadSummary ? `Thread summary:\n${state.threadSummary}` : '',
+      '',
+      state.recipientSummary ? `Recipients to address:\n${state.recipientSummary}` : 'Recipients not identified yet—use available headers to infer them before drafting.',
       '',
       'Current context status:',
       ...contextFlags,
@@ -467,7 +474,7 @@ export class CompositionAgentService {
       };
     }
     const messages = await this.gmailService.getMessagesBulk(state.userId, ids, 'full');
-    const summary = this.summarizeSearchResults(messages);
+    const summary = this.gmailService.summarizeMessages(messages);
     return {
       message: summary,
       activity: 'Historical email context captured.',
@@ -515,6 +522,7 @@ export class CompositionAgentService {
   private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
     const contextSections = [
       context.threadSummary && `Thread context:\n${context.threadSummary}`,
+      context.recipientSummary && `Who to address:\n${context.recipientSummary}`,
       context.searchSummary && `Historical references:\n${context.searchSummary}`,
       context.calendarSummary && `Calendar availability:\n${context.calendarSummary}`,
       context.vectorSummary && `Knowledge base context:\n${context.vectorSummary}`,
@@ -541,7 +549,7 @@ export class CompositionAgentService {
     if (streamingEnabled) {
       this.emitEvent({ type: 'draft_stream_started' });
       let accumulated = '';
-      const stream = await this.workerModel.stream(promptMessages);
+      const stream = await this.draftCreatorModel.stream(promptMessages);
       for await (const chunk of stream) {
         const chunkText = this.renderMessageContent(chunk);
         if (chunkText) {
@@ -553,40 +561,8 @@ export class CompositionAgentService {
       return accumulated;
     }
 
-    const response = await this.workerModel.invoke(promptMessages);
+    const response = await this.draftCreatorModel.invoke(promptMessages);
     return this.renderMessageContent(response);
-  }
-
-  private summarizeThread(thread: any) {
-    const messages = thread?.messages ?? [];
-    if (!messages.length) {
-      return 'Thread is empty.';
-    }
-    const latest = messages.slice(-3);
-    return latest
-      .map((message: any, index: number) => {
-        const from = this.extractHeader(message, 'from') || 'Unknown sender';
-        const subject = this.extractHeader(message, 'subject') || 'No subject';
-        const body = this.extractBody(message);
-        const preview = body || message.snippet || '';
-        return `Message #${messages.length - latest.length + index + 1}\nFrom: ${from}\nSubject: ${subject}\nBody:\n${preview}`;
-      })
-      .join('\n');
-  }
-
-  private summarizeSearchResults(messages: Array<any | null>) {
-    if (!messages.length) {
-      return 'No historical results.';
-    }
-    return messages
-      .filter(Boolean)
-      .map((message: any) => {
-        const subject = this.extractHeader(message, 'subject') || 'No subject';
-        const from = this.extractHeader(message, 'from') || 'Unknown sender';
-        const body = this.extractBody(message) || message.snippet || '';
-        return `Subject: ${subject}\nFrom: ${from}\nBody:\n${body}`;
-      })
-      .join('\n');
   }
 
   private summarizeCalendar(events: any) {
@@ -613,50 +589,6 @@ export class CompositionAgentService {
       return 'subject:(meeting OR schedule)';
     }
     return 'in:anywhere';
-  }
-
-  private extractHeader(message: any, name: string) {
-    const headers = message.payload?.headers ?? [];
-    const header = headers.find((h: any) => h?.name?.toLowerCase() === name.toLowerCase());
-    return header?.value;
-  }
-
-  private extractBody(message: any) {
-    const payload = message.payload;
-    if (!payload) {
-      return '';
-    }
-
-    if (payload.body?.data) {
-      return this.decodeBody(payload.body.data);
-    }
-
-    const parts = payload.parts ?? [];
-    const textPart = parts.find((part: any) => part.mimeType === 'text/plain');
-    if (textPart?.body?.data) {
-      return this.decodeBody(textPart.body.data);
-    }
-
-    const htmlPart = parts.find((part: any) => part.mimeType === 'text/html');
-    if (htmlPart?.body?.data) {
-      return this.stripHtml(this.decodeBody(htmlPart.body.data));
-    }
-
-    for (const part of parts) {
-      if (part.body?.data) {
-        return this.decodeBody(part.body.data);
-      }
-    }
-
-    return '';
-  }
-
-  private decodeBody(data: string) {
-    return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
-  }
-
-  private stripHtml(html: string) {
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   private extractLastAIMessage(messages: BaseMessage[]) {

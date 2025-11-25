@@ -3,6 +3,7 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import { ObjectId } from 'mongodb';
+import { google, gmail_v1 } from 'googleapis';
 
 @Injectable()
 export class GmailService {
@@ -160,6 +161,33 @@ export class GmailService {
     throw new Error('No access token or refresh token available. User needs to reconnect their Gmail account.');
   }
 
+  private ensureGoogleOAuthConfig() {
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    const clientSecret = this.configService.get<string>('GOOGLE_CLIENT_SECRET');
+    if (!clientId || !clientSecret) {
+      throw new Error('Google OAuth credentials not configured');
+    }
+    return { clientId, clientSecret };
+  }
+
+  private async getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
+    const accessToken = await this.getValidAccessToken(userId);
+    const { clientId, clientSecret } = this.ensureGoogleOAuthConfig();
+    const auth = new google.auth.OAuth2(clientId, clientSecret);
+    auth.setCredentials({ access_token: accessToken });
+    return google.gmail({ version: 'v1', auth });
+  }
+
+  private formatGoogleError(error: unknown) {
+    if (error && typeof error === 'object') {
+      const anyError = error as Record<string, any>;
+      const message = anyError.message || anyError.code || 'Unknown error';
+      const responseData = anyError.response?.data ? JSON.stringify(anyError.response.data) : '';
+      return responseData ? `${message}: ${responseData}` : message;
+    }
+    return String(error);
+  }
+
   /**
    * List messages with pagination support
    * @param userId User ID
@@ -177,36 +205,30 @@ export class GmailService {
     nextPageToken?: string;
     resultSizeEstimate: number;
   }> {
-    const accessToken = await this.getValidAccessToken(userId);
-
-    const params = new URLSearchParams({
-      maxResults: maxResults.toString(),
-    });
-
-    if (pageToken) {
-      params.append('pageToken', pageToken);
+    const gmail = await this.getGmailClient(userId);
+    try {
+      const { data } = await gmail.users.messages.list({
+        userId: 'me',
+        pageToken,
+        maxResults,
+        q: query,
+      });
+      const normalizedMessages = (data.messages ?? []).flatMap((message) => {
+        if (message?.id && message?.threadId) {
+          return [{ id: message.id, threadId: message.threadId }];
+        }
+        return [];
+      });
+      return {
+        messages: normalizedMessages,
+        nextPageToken: data.nextPageToken,
+        resultSizeEstimate: data.resultSizeEstimate ?? 0,
+      };
+    } catch (error) {
+      const message = this.formatGoogleError(error);
+      console.error('Failed to list messages:', message);
+      throw new Error(`Failed to list Gmail messages: ${message}`);
     }
-
-    if (query) {
-      params.append('q', query);
-    }
-
-    const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to list messages:', response.status, errorText);
-      throw new Error(`Failed to list Gmail messages: ${response.status}`);
-    }
-
-    return response.json();
   }
 
   /**
@@ -220,24 +242,19 @@ export class GmailService {
     messageId: string,
     format: 'full' | 'metadata' | 'minimal' | 'raw' = 'full',
   ): Promise<any> {
-    const accessToken = await this.getValidAccessToken(userId);
-
-    const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=${format}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to get message:', response.status, errorText);
-      throw new Error(`Failed to get Gmail message: ${response.status}`);
+    const gmail = await this.getGmailClient(userId);
+    try {
+      const { data } = await gmail.users.messages.get({
+        userId: 'me',
+        id: messageId,
+        format,
+      });
+      return data;
+    } catch (error) {
+      const message = this.formatGoogleError(error);
+      console.error('Failed to get message:', message);
+      throw new Error(`Failed to get Gmail message: ${message}`);
     }
-
-    return response.json();
   }
 
   /**
@@ -263,33 +280,22 @@ export class GmailService {
     format: 'full' | 'metadata' | 'minimal' | 'raw' = 'metadata',
     concurrency: number = 10,
   ): Promise<Array<any | null>> {
-    const accessToken = await this.getValidAccessToken(userId);
+    const gmail = await this.getGmailClient(userId);
     const results: Array<any | null> = new Array(messageIds.length).fill(null);
 
-    // Process messages in batches to respect concurrency limit
     for (let i = 0; i < messageIds.length; i += concurrency) {
       const batch = messageIds.slice(i, i + concurrency);
       
       const batchPromises = batch.map(async (messageId) => {
         try {
-          const response = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=${format}`,
-            {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-              },
-            },
-          );
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Failed to get message ${messageId}:`, response.status, errorText);
-            return null;
-          }
-
-          return response.json();
+          const { data } = await gmail.users.messages.get({
+            userId: 'me',
+            id: messageId,
+            format,
+          });
+          return data;
         } catch (error) {
-          console.error(`Error fetching message ${messageId}:`, error);
+          console.error(`Error fetching message ${messageId}:`, this.formatGoogleError(error));
           return null;
         }
       });
@@ -311,24 +317,20 @@ export class GmailService {
    * @param threadId Gmail thread ID
    */
   async getThread(userId: string, threadId: string): Promise<any> {
-    const accessToken = await this.getValidAccessToken(userId);
-
-    const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to get thread:', response.status, errorText);
-      throw new Error(`Failed to get Gmail thread: ${response.status}`);
+    const gmail = await this.getGmailClient(userId);
+    try {
+      const { data } = await gmail.users.threads.get({
+        userId: 'me',
+        id: threadId,
+        format: 'full',
+      });
+      console.log('Thread data:', data);
+      return data;
+    } catch (error) {
+      const message = this.formatGoogleError(error);
+      console.error('Failed to get thread:', message);
+      throw new Error(`Failed to get Gmail thread: ${message}`);
     }
-
-    return response.json();
   }
 
   async disconnectGmail(userId: string): Promise<boolean> {
@@ -414,78 +416,201 @@ export class GmailService {
     return false;
   }
 
-  private async getOrCreateRefreshLabel(accessToken: string): Promise<string | null> {
+  private async getOrCreateRefreshLabel(gmail: gmail_v1.Gmail): Promise<string | null> {
     try {
-      const listResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!listResponse.ok) {
-        console.warn('Failed to list Gmail labels');
-        return null;
-      }
-
-      const labels = await listResponse.json();
-      const existing = labels.labels?.find((label: any) => label.name === this.refreshLabelName);
+      const { data } = await gmail.users.labels.list({ userId: 'me' });
+      const existing = data.labels?.find((label) => label.name === this.refreshLabelName);
       if (existing?.id) {
         return existing.id;
       }
 
-      const createResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data: created } = await gmail.users.labels.create({
+        userId: 'me',
+        requestBody: {
           name: this.refreshLabelName,
           labelListVisibility: 'labelHide',
           messageListVisibility: 'hide',
-        }),
+        },
       });
-
-      if (!createResponse.ok) {
-        console.warn('Failed to create Gmail refresh label');
-        return null;
-      }
-
-      const created = await createResponse.json();
       return created.id || null;
     } catch (error) {
-      console.warn('Error ensuring Gmail refresh label:', error);
+      console.warn('Error ensuring Gmail refresh label:', this.formatGoogleError(error));
       return null;
     }
   }
 
-  private async toggleRefreshLabel(accessToken: string, messageId?: string): Promise<void> {
+  private async toggleRefreshLabel(gmail: gmail_v1.Gmail, messageId?: string): Promise<void> {
     if (!messageId) {
       return;
     }
 
-    const labelId = await this.getOrCreateRefreshLabel(accessToken);
+    const labelId = await this.getOrCreateRefreshLabel(gmail);
     if (!labelId) {
       return;
     }
 
-    const modify = async (body: Record<string, any>) => {
-      await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
+    try {
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        requestBody: {
+          addLabelIds: [labelId],
         },
-        body: JSON.stringify(body),
+      });
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        requestBody: {
+          removeLabelIds: [labelId],
+        },
+      });
+    } catch (error) {
+      console.warn('Failed to toggle refresh label:', this.formatGoogleError(error));
+    }
+  }
+
+  summarizeThread(thread: gmail_v1.Schema$Thread | null | undefined, maxMessages = 5) {
+    const messages = thread?.messages ?? [];
+    if (!messages.length) {
+      return 'Thread is empty.';
+    }
+    const latest = messages.slice(-maxMessages);
+    return latest
+      .map((message, index) => {
+        const from = this.extractHeader(message, 'from') || 'Unknown sender';
+        const subject = this.extractHeader(message, 'subject') || 'No subject';
+        const body = this.extractMessageBody(message);
+        const preview = this.sanitizePreview(body || message?.snippet || '');
+        return `Message #${messages.length - latest.length + index + 1}\nFrom: ${from}\nSubject: ${subject}\nBody:\n${preview}`;
+      })
+      .join('\n');
+  }
+
+  buildRecipientSummary(thread: gmail_v1.Schema$Thread | null | undefined) {
+    const messages = thread?.messages ?? [];
+    if (!messages.length) {
+      return null;
+    }
+    const latestIncoming = [...messages].reverse().find((message) => {
+      const labels: string[] = message?.labelIds ?? [];
+      return !labels.includes('SENT');
+    });
+    const referenceMessage = latestIncoming ?? messages[messages.length - 1];
+    const primarySender = this.extractHeader(referenceMessage, 'reply-to') || this.extractHeader(referenceMessage, 'from');
+    const originalTo = this.extractHeader(referenceMessage, 'to');
+    const originalCc = this.extractHeader(referenceMessage, 'cc');
+    const subject = this.extractHeader(referenceMessage, 'subject');
+    const date = this.extractHeader(referenceMessage, 'date') || referenceMessage?.internalDate;
+    const participants = this.collectThreadParticipants(messages, primarySender);
+    const lines = [];
+    if (primarySender) {
+      lines.push(`Primary recipient for this reply: ${primarySender}`);
+    }
+    if (originalTo) {
+      lines.push(`Latest "To" line: ${originalTo}`);
+    }
+    if (originalCc) {
+      lines.push(`Latest "Cc" line: ${originalCc}`);
+    }
+    if (subject) {
+      lines.push(`Subject to reference: ${subject}`);
+    }
+    if (date) {
+      lines.push(`Most recent incoming message date: ${date}`);
+    }
+    if (participants.length) {
+      lines.push(`Other thread participants: ${participants.join(', ')}`);
+    }
+    if (!lines.length) {
+      return null;
+    }
+    return lines.join('\n');
+  }
+
+  summarizeMessages(messages: Array<gmail_v1.Schema$Message | null>) {
+    if (!messages.length) {
+      return 'No historical results.';
+    }
+    return messages
+      .filter(Boolean)
+      .map((message) => {
+        const subject = this.extractHeader(message, 'subject') || 'No subject';
+        const from = this.extractHeader(message, 'from') || 'Unknown sender';
+        const body = this.sanitizePreview(this.extractMessageBody(message) || message?.snippet || '');
+        return `Subject: ${subject}\nFrom: ${from}\nBody:\n${body}`;
+      })
+      .join('\n');
+  }
+
+  private extractHeader(message: gmail_v1.Schema$Message | null | undefined, name: string) {
+    const headers = message?.payload?.headers ?? [];
+    const header = headers.find((h) => h?.name?.toLowerCase() === name.toLowerCase());
+    return header?.value;
+  }
+
+  private extractMessageBody(message: gmail_v1.Schema$Message | null | undefined) {
+    const payload = message?.payload;
+    if (!payload) {
+      return '';
+    }
+    const { text, html } = this.extractBodiesFromPayload(payload);
+    if (text) {
+      return this.sanitizePreview(text);
+    }
+    if (html) {
+      return this.sanitizePreview(this.stripHtml(html));
+    }
+    return '';
+  }
+
+  private extractBodiesFromPayload(part: gmail_v1.Schema$MessagePart | null | undefined, bodies: { text?: string; html?: string } = {}) {
+    if (!part) {
+      return bodies;
+    }
+    const mime = part.mimeType || '';
+    const isAttachment = Boolean(part.filename);
+    if (part.body?.data && !isAttachment) {
+      const decoded = this.decodeBody(part.body.data);
+      if (mime.includes('text/plain')) {
+        bodies.text = bodies.text ?? decoded;
+      } else if (mime.includes('text/html')) {
+        bodies.html = bodies.html ?? decoded;
+      } else if (!mime && !bodies.text) {
+        bodies.text = decoded;
+      }
+    }
+    if (Array.isArray(part.parts) && part.parts.length) {
+      part.parts.forEach((child) => this.extractBodiesFromPayload(child, bodies));
+    }
+    return bodies;
+  }
+
+  private collectThreadParticipants(messages: gmail_v1.Schema$Message[] = [], primaryRecipient?: string | null) {
+    const seen = new Set<string>();
+    const pushParticipants = (value?: string | null) => {
+      if (!value) {
+        return;
+      }
+      this.splitAddressList(value).forEach((entry) => {
+        if (entry && entry !== primaryRecipient) {
+          seen.add(entry);
+        }
       });
     };
+    messages.forEach((message) => {
+      pushParticipants(this.extractHeader(message, 'from'));
+      pushParticipants(this.extractHeader(message, 'to'));
+      pushParticipants(this.extractHeader(message, 'cc'));
+      pushParticipants(this.extractHeader(message, 'bcc'));
+    });
+    return Array.from(seen).slice(0, 10);
+  }
 
-    try {
-      await modify({ addLabelIds: [labelId] });
-      await modify({ removeLabelIds: [labelId] });
-    } catch (error) {
-      console.warn('Failed to toggle refresh label:', error);
-    }
+  private splitAddressList(value: string) {
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   }
 
   private encodeMessage(message: string): string {
@@ -494,6 +619,26 @@ export class GmailService {
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '');
+  }
+
+  private decodeBody(data: string) {
+    return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
+  }
+
+  private stripHtml(html: string) {
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  private sanitizePreview(text?: string | null) {
+    if (!text) {
+      return '';
+    }
+    return text
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('>'))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   async createDraftReply(
@@ -519,7 +664,7 @@ export class GmailService {
     subject?: string;
     body?: string;
   }> {
-    const accessToken = await this.getValidAccessToken(userId);
+    const gmail = await this.getGmailClient(userId);
 
     const headers: string[] = [
       `From: ${params.from}`,
@@ -553,38 +698,35 @@ export class GmailService {
     const rawMessage = `${headers.join('\r\n')}\r\n${params.body}`;
     const encodedMessage = this.encodeMessage(rawMessage);
 
-    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: {
-          raw: encodedMessage,
-          threadId: params.threadId,
+    try {
+      const { data: draft } = await gmail.users.drafts.create({
+        userId: 'me',
+        requestBody: {
+          message: {
+            raw: encodedMessage,
+            threadId: params.threadId,
+          },
         },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to create draft:', response.status, errorText);
-      throw new Error(`Failed to create Gmail draft: ${response.status}`);
+      });
+      await this.toggleRefreshLabel(gmail, draft.message?.id ?? undefined);
+      if (!draft.id) {
+        throw new Error('Gmail draft creation did not return an ID.');
+      }
+      return {
+        id: draft.id,
+        messageId: draft.message?.id,
+        threadId: draft.message?.threadId || params.threadId,
+        to: params.to,
+        cc: params.cc || [],
+        bcc: params.bcc || [],
+        subject,
+        body: params.body,
+      };
+    } catch (error) {
+      const message = this.formatGoogleError(error);
+      console.error('Failed to create draft:', message);
+      throw new Error(`Failed to create Gmail draft: ${message}`);
     }
-
-    const draft = await response.json();
-    await this.toggleRefreshLabel(accessToken, draft.message?.id);
-    return {
-      id: draft.id,
-      messageId: draft.message?.id,
-      threadId: draft.message?.threadId || params.threadId,
-      to: params.to,
-      cc: params.cc || [],
-      bcc: params.bcc || [],
-      subject,
-      body: params.body,
-    };
   }
 
   /**
@@ -592,24 +734,21 @@ export class GmailService {
    * @param userId User ID
    */
   async getProfile(userId: string): Promise<{ historyId: string; emailAddress: string }> {
-    const accessToken = await this.getValidAccessToken(userId);
-
-    const response = await fetch(
-      'https://gmail.googleapis.com/gmail/v1/users/me/profile',
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to get profile:', response.status, errorText);
-      throw new Error(`Failed to get Gmail profile: ${response.status}`);
+    const gmail = await this.getGmailClient(userId);
+    try {
+      const { data } = await gmail.users.getProfile({ userId: 'me' });
+      if (!data.historyId || !data.emailAddress) {
+        throw new Error('Incomplete Gmail profile response.');
+      }
+      return {
+        historyId: data.historyId,
+        emailAddress: data.emailAddress,
+      };
+    } catch (error) {
+      const message = this.formatGoogleError(error);
+      console.error('Failed to get profile:', message);
+      throw new Error(`Failed to get Gmail profile: ${message}`);
     }
-
-    return response.json();
   }
 
   /**
@@ -623,30 +762,20 @@ export class GmailService {
     historyId: string,
     maxResults: number = 100,
   ): Promise<any> {
-    const accessToken = await this.getValidAccessToken(userId);
-
-    const params = new URLSearchParams({
-      historyTypes: 'messageAdded,messageDeleted',
-      startHistoryId: historyId,
-      maxResults: maxResults.toString(),
-    });
-
-    const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/history?${params.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to get history:', response.status, errorText);
-      throw new Error(`Failed to get Gmail history: ${response.status}`);
+    const gmail = await this.getGmailClient(userId);
+    try {
+      const { data } = await gmail.users.history.list({
+        userId: 'me',
+        startHistoryId: historyId,
+        maxResults,
+        historyTypes: ['messageAdded', 'messageDeleted'],
+      });
+      return data;
+    } catch (error) {
+      const message = this.formatGoogleError(error);
+      console.error('Failed to get history:', message);
+      throw new Error(`Failed to get Gmail history: ${message}`);
     }
-
-    return response.json();
   }
 }
 
