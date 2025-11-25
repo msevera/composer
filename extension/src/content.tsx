@@ -2,7 +2,7 @@ import cssText from "data-text:~style.css";
 import type { PlasmoCSConfig } from "plasmo";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, RotateCcw, Square, Check } from "lucide-react";
+import { Copy, RotateCcw, Square, Check, Minimize2, Maximize2 } from "lucide-react";
 
 import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
@@ -36,6 +36,7 @@ const PlasmoOverlay = () => {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [threadId, setThreadId] = useState<string | undefined>(() => getThreadIdFromDom());
   const isThreadView = useIsGmailThreadView();
+  const [isMinimized, setIsMinimized] = useState(() => getSavedMinimizedState());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentDraftMessageIdRef = useRef<string | null>(null);
@@ -107,6 +108,14 @@ const PlasmoOverlay = () => {
     }
   }, [agentMessages, draftIndicator, errorMessages]);
 
+  const handleMaximize = useCallback(() => {
+    setIsMinimized(false);
+  }, []);
+
+  const handleMinimize = useCallback(() => {
+    setIsMinimized(true);
+  }, []);
+
   const handleAgentResponse = useCallback(
     (response: Record<string, any>) => {
       if (!response) {
@@ -165,6 +174,10 @@ const PlasmoOverlay = () => {
       closeEventSource();
     };
   }, [closeEventSource]);
+
+  useEffect(() => {
+    persistMinimizedState(isMinimized);
+  }, [isMinimized]);
 
   useEffect(() => {
     return () => {
@@ -421,6 +434,32 @@ const PlasmoOverlay = () => {
     return null;
   }
 
+  if (isMinimized) {
+    return (
+      <div className="pointer-events-none fixed bottom-4 left-4 z-[2147483646] flex justify-center">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-[28px] bg-stone-900/95 px-4 py-2 pr-2 text-neutral-100 shadow-lg shadow-black/60">
+          {
+            isRunning && (
+              <div className="w-1 h-1 rounded-full bg-emerald-400 pulsate animate-pulse mr-0.5" />
+            )
+          }
+          <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Composer ai</p>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="text-neutral-400"
+            onClick={handleMaximize}
+          >
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const renderMinimizeButton = !isMinimized && agentMessages.length === 0;
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
       <form
@@ -430,16 +469,23 @@ const PlasmoOverlay = () => {
         <div className="flex-shrink-0">
           {agentMessages.length > 0 && (
             <div className="p-4 flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Draft Composer</p>
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                onClick={handleReset}
-              >
-                <RotateCcw className="mr-0.5 h-3 w-3" />
-                reset
-              </Button>             
+              <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Composer ai</p>
+              <div className="flex items-center gap-2">
+                <Button size="xs" variant="ghost" className="text-neutral-500" onClick={handleMinimize}>
+                  <Minimize2 className="h-4 w-4" />
+                  minimize
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={handleReset}
+                  className="text-neutral-500"
+                >
+                  <RotateCcw className="mr-0.5 h-3 w-3" />
+                  reset
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -451,80 +497,85 @@ const PlasmoOverlay = () => {
             agentMessages.length > 0 || draftIndicator ? "p-4 pt-0" : "p-0",
           )}
         >
-            {(agentMessages.length > 0 || draftIndicator) && (
-              <div className="space-y-2 text-xs text-neutral-100">
-                {agentMessages.map((messageEntry) =>
-                  messageEntry.kind === "user" ? (
-                    <div
-                      key={messageEntry.id}
-                      className="rounded-2xl border px-3 py-2 whitespace-pre-wrap border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                    >
-                      {messageEntry.text}
-                    </div>
-                  ) : (
-                    <DraftBubble
-                      key={messageEntry.id}
-                      text={messageEntry.text}
-                      copied={copiedDraftId === messageEntry.id}
-                      onCopy={() => void handleCopyDraft(messageEntry.text, messageEntry.id)}
-                    />
-                  ),
-                )}
-                {draftIndicator && <DraftBubble indicator={draftIndicator} />}
-              </div>
-            )}
-            {errorMessages.length > 0 && (
-              <div className="space-y-2 text-xs">
-                {errorMessages.map((error, index) => (
+          {(agentMessages.length > 0 || draftIndicator) && (
+            <div className="space-y-2 text-xs text-neutral-100 flex flex-col">
+              {agentMessages.map((messageEntry) =>
+                messageEntry.kind === "user" ? (
                   <div
-                    key={`error-${index}`}
-                    className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-100"
+                    key={messageEntry.id}
+                    className="self-end rounded-2xl px-3 py-2 whitespace-pre-wrap bg-neutral-700 text-white text-xs"
                   >
-                    {error}
+                    {messageEntry.text}
                   </div>
-                ))}
-              </div>
-            )}
+                ) : (
+                  <DraftBubble
+                    key={messageEntry.id}
+                    text={messageEntry.text}
+                    copied={copiedDraftId === messageEntry.id}
+                    onCopy={() => void handleCopyDraft(messageEntry.text, messageEntry.id)}
+                  />
+                ),
+              )}
+              {draftIndicator && <DraftBubble indicator={draftIndicator} />}
+            </div>
+          )}
+          {errorMessages.length > 0 && (
+            <div className="space-y-2 text-xs">
+              {errorMessages.map((error, index) => (
+                <div
+                  key={`error-${index}`}
+                  className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-100"
+                >
+                  {error}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="flex-shrink-0 flex w-full items-end gap-2 rounded-[28px] p-2.5 pl-5 bg-stone-900 px-3 py-3">
-            <textarea
-              ref={textareaRef}
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void (isRunning ? handleStop() : handleSubmit());
-                }
-              }}
-              rows={1}
-              placeholder="Write a brief response"
-              className="max-h-40 min-h-[26px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
-            />
-            <Button
-              type={isRunning ? "button" : "submit"}
-              onClick={isRunning ? handleStop : undefined}
-              disabled={!message.trim() && !isRunning}
-              variant={isRunning ? "destructive" : "default"}
-              size="sm"
-              // className={cn(
-              //   "self-end h-9 rounded-full px-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition",
-              //   isRunning ? "bg-red-500/80 hover:bg-red-500" : "bg-white/10 hover:bg-white/20",
-              // )}
-            >
-              {isRunning ? (
-                <>
-                  <Square className="mr-2 h-3.5 w-3.5" />
-                  Stop
-                </>
-              ) : (
-                <>
-                  {/* <Loader2 className="mr-2 h-3.5 w-3.5 opacity-0" /> */}
-                  Compose
-                </>
-              )}
-            </Button>
+        <div className={cn("flex-shrink-0 flex w-full items-end gap-2 rounded-[28px] p-2.5 bg-stone-900 px-3 py-3",
+          !renderMinimizeButton ? "pl-5" : ""
+        )}>
+          {
+            renderMinimizeButton && (
+              <Button size="icon" className="text-neutral-500" type="button" onClick={handleMinimize}>
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            )
+          }
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void (isRunning ? handleStop() : handleSubmit());
+              }
+            }}
+            rows={1}
+            placeholder="Write a brief response"
+            className="max-h-40 min-h-[26px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
+          />
+          <Button
+            type={isRunning ? "button" : "submit"}
+            onClick={isRunning ? handleStop : undefined}
+            disabled={!message.trim() && !isRunning}
+            variant={isRunning ? "destructive" : "default"}
+            size="sm"
+          >
+            {isRunning ? (
+              <>
+                <Square className="mr-2 h-3.5 w-3.5" />
+                Stop
+              </>
+            ) : (
+              <>
+                {/* <Loader2 className="mr-2 h-3.5 w-3.5 opacity-0" /> */}
+                Compose
+              </>
+            )}
+          </Button>
         </div>
       </form>
     </div>
@@ -546,7 +597,7 @@ const DraftBubble = ({ text, onCopy, indicator, copied }: DraftBubbleProps) => {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-neutral-100">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">Draft Output</p>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">Draft</p>
         {showCopyButton ? (
           <Button
             type="button"
@@ -573,15 +624,9 @@ const DraftBubble = ({ text, onCopy, indicator, copied }: DraftBubbleProps) => {
         <pre className="whitespace-pre-wrap text-xs text-neutral-100">{text}</pre>
       ) : (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-xs text-neutral-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
-            <span className="whitespace-pre-wrap">{indicatorLabel}</span>
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="h-3 rounded-md bg-white/10 animate-pulse" />
-            <div className="h-3 rounded-md bg-white/10 animate-pulse delay-75" />
-            <div className="h-3 rounded-md bg-white/10 animate-pulse delay-150 w-3/4" />
-          </div>
+          <div className="h-3 rounded-md bg-white/10 animate-pulse" />
+          <div className="h-3 rounded-md bg-white/10 animate-pulse delay-75" />
+          <div className="h-3 rounded-md bg-white/10 animate-pulse delay-150 w-3/4" />
         </div>
       )}
     </div>
@@ -756,4 +801,28 @@ function formatToolName(name: string) {
   return name
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+const MINIMIZED_STORAGE_KEY = "snail-composer-minimized";
+
+function getSavedMinimizedState() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(MINIMIZED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistMinimizedState(value: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(MINIMIZED_STORAGE_KEY, String(value));
+  } catch {
+    // ignore write errors
+  }
 }
