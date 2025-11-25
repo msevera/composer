@@ -309,17 +309,19 @@ const PlasmoOverlay = () => {
         return;
       }
       setDraftIndicator(null);
-      setAgentMessages((prev) => [
-        ...prev,
-        {
-          id: generateMessageId(),
-          text: inputText,
-          kind: "user",
-        },
-      ]);
+      if (inputText.trim()) {
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            id: generateMessageId(),
+            text: inputText,
+            kind: "user",
+          },
+        ]);
+      }
       const params = new URLSearchParams({
         threadId,
-        userPrompt: inputText,
+        userPrompt: inputText ?? "",
       });
       if (conversationId) {
         params.set("conversationId", conversationId);
@@ -350,11 +352,6 @@ const PlasmoOverlay = () => {
     (event?: FormEvent<HTMLFormElement>) => {
       event?.preventDefault();
       if (isRunning) {
-        return;
-      }
-
-      if (!message.trim()) {
-        console.error("Please enter a message");
         return;
       }
 
@@ -467,7 +464,7 @@ const PlasmoOverlay = () => {
         className="pointer-events-auto w-full max-w-xl rounded-[28px] bg-stone-900 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur flex flex-col max-h-[50vh]"
       >
         <div className="flex-shrink-0">
-          {agentMessages.length > 0 && (
+          {(agentMessages.length > 0 || isRunning) && (
             <div className="p-4 flex items-center justify-between">
               <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Composer ai</p>
               <div className="flex items-center gap-2">
@@ -554,13 +551,12 @@ const PlasmoOverlay = () => {
               }
             }}
             rows={1}
-            placeholder="Write a brief response"
+            placeholder="Write anything (optional)"
             className="max-h-40 min-h-[26px] flex-1 resize-none border-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 focus-visible:outline-none"
           />
           <Button
             type={isRunning ? "button" : "submit"}
             onClick={isRunning ? handleStop : undefined}
-            disabled={!message.trim() && !isRunning}
             variant={isRunning ? "destructive" : "default"}
             size="sm"
           >
@@ -571,7 +567,6 @@ const PlasmoOverlay = () => {
               </>
             ) : (
               <>
-                {/* <Loader2 className="mr-2 h-3.5 w-3.5 opacity-0" /> */}
                 Compose
               </>
             )}

@@ -32,9 +32,11 @@ export class CompositionController {
     const userId = user.id || user.userId || user._id;
     const { threadId, userPrompt, conversationId } = query;
 
-    if (!threadId || !userPrompt) {
-      throw new BadRequestException('threadId and userPrompt are required');
+    if (!threadId) {
+      throw new BadRequestException('threadId is required');
     }
+
+    const normalizedUserPrompt = typeof userPrompt === 'string' ? userPrompt : '';
 
     return new Observable<MessageEvent>((subscriber) => {
       const abortController = new AbortController();
@@ -45,7 +47,7 @@ export class CompositionController {
       this.compositionService
         .composeDraftStreamWithAgent(
           userId.toString(),
-          { threadId, userPrompt, conversationId },
+          { threadId, userPrompt: normalizedUserPrompt, conversationId },
           writer,
           abortController.signal,
         )
