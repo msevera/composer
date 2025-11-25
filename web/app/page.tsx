@@ -306,7 +306,7 @@ export default function Home() {
 
   const handleConnectGmail = async () => {
     try {
-      await authClient.signIn.social({
+      await authClient.linkSocial({
         provider: 'google',
         callbackURL: 'http://localhost:3000/',
       });
@@ -317,7 +317,7 @@ export default function Home() {
 
   const handleConnectNotion = async () => {
     try {
-      await authClient.signIn.social({
+      await authClient.linkSocial({
         provider: 'notion',
         callbackURL: 'http://localhost:3000/',
       });
