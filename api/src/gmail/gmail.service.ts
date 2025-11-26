@@ -323,8 +323,7 @@ export class GmailService {
         userId: 'me',
         id: threadId,
         format: 'full',
-      });
-      console.log('Thread data:', data);
+      });      
       return data;
     } catch (error) {
       const message = this.formatGoogleError(error);

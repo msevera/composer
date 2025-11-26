@@ -58,6 +58,7 @@ export default function DashboardPage() {
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
   const [isCheckingNotion, setIsCheckingNotion] = useState(false);
   const [isKnowledgeStepSkipped, setIsKnowledgeStepSkipped] = useState(false);
+  const [isExtensionStepCompleted, setIsExtensionStepCompleted] = useState(false);
   const [isExtensionInstalled, setIsExtensionInstalled] = useState(false);
   const [isCheckingExtension, setIsCheckingExtension] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -122,6 +123,12 @@ export default function DashboardPage() {
       setIsKnowledgeStepSkipped(false);
     }
   }, [isNotionConnected]);
+
+  useEffect(() => {
+    if (isExtensionInstalled) {
+      setIsExtensionStepCompleted(true);
+    }
+  }, [isExtensionInstalled]);
 
   const detectExtension = useCallback(async () => {
     if (typeof window === 'undefined') {
@@ -337,6 +344,39 @@ export default function DashboardPage() {
         ),
       },
       {
+        id: 'extension',
+        title: 'Install Chrome extension',
+        description: 'Our Chrome extension agent will help you create responses in seconds not minutes.',
+        completed: isExtensionStepCompleted,
+        action: (
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => window.open(EXTENSION_INSTALL_URL, '_blank', 'noreferrer')}
+              disabled={isExtensionInstalled || isCheckingExtension}
+              className={`inline-flex min-w-[180px] items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition ${isExtensionInstalled
+                ? 'border border-emerald-200 bg-emerald-50 text-emerald-600 cursor-not-allowed'
+                : 'bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500'
+                }`}
+            >
+              {isCheckingExtension
+                ? 'Checking…'
+                : isExtensionInstalled
+                  ? 'Installed'
+                  : 'Install Extension'}
+            </button>
+            {isExtensionInstalled && (
+              <button
+                type="button"
+                onClick={() => setIsExtensionStepCompleted(true)}
+                className="text-sm font-semibold text-slate-400 transition hover:text-slate-600"
+              >
+                Continue
+              </button>
+            )}
+          </div>
+        ),
+      },
+      {
         id: 'start',
         title: 'Start your free trial',
         description: 'Experience the full potential of Composer AI.',
@@ -360,7 +400,10 @@ export default function DashboardPage() {
     handleConnectGmail,
     handleConnectNotion,
     handleDisconnectNotion,
+    isCheckingExtension,
     isCheckingNotion,
+    isExtensionInstalled,
+    isExtensionStepCompleted,
     isGmailConnected,
     isKnowledgeStepSkipped,
     isNotionConnected,

@@ -1,4 +1,4 @@
-import { Resolver, Mutation, Context, Args } from '@nestjs/graphql';
+import { Resolver, Mutation, Query, Context, Args } from '@nestjs/graphql';
 import { VectorSearchService } from '../indexing/services/vector-search.service';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
@@ -7,7 +7,9 @@ import {
   ClarificationRequired,
   ComposeDraftAgentInput,
   ComposeDraftAgentResponse,
+  ConversationState,
   DraftResult,
+  ResetConversationResult,
   ResumeDraftCompositionInput,
 } from './dto/compose-draft-agent.dto';
 import { CompositionService } from './composition.service';
@@ -45,7 +47,26 @@ export class CompositionResolver {
   ): Promise<typeof ComposeDraftAgentResponse> {
     const result = await this.compositionService.resumeDraftComposition(input);
     return this.mapAgentResult(result);
-    }
+  }
+
+  @Query(() => ConversationState)
+  async getConversationState(
+    @Context() context: any,
+    @Args('conversationId') conversationId: string,
+  ): Promise<ConversationState> {
+    // Only accept conversationId - do not generate from threadId
+    return this.compositionService.getConversationState(conversationId);
+  }
+
+  @Mutation(() => ResetConversationResult)
+  async resetConversation(
+    @Context() context: any,
+    @Args('threadId') threadId: string,
+  ): Promise<ResetConversationResult> {
+    const user = context.req.user;
+    const userId = user.id || user.userId || user._id;
+    return this.compositionService.resetConversation(userId.toString(), threadId);
+  }
 
   private mapAgentResult(result: AgentExecutionResult): DraftResult | ClarificationRequired {
     if (result.status === 'NEEDS_INPUT') {

@@ -240,6 +240,52 @@ export class CompositionAgentService {
     throw new Error('Clarification cycles are not supported in the current agent implementation.');
   }
 
+  async getConversationState(conversationId: string): Promise<{
+    conversationId: string;
+    exists: boolean;
+    messages?: Array<{ role: string; content: string; kind: 'user' | 'draft' }>;
+  }> {
+    try {
+      // Use getState() on the compiled graph to retrieve saved state
+      const state = await this.agentGraph.getState({
+        configurable: { thread_id: conversationId },
+      });
+
+      if (!state || !state.values) {
+        return { conversationId, exists: false };
+      }
+
+      // Extract user messages and draft messages from the state
+      const messages: Array<{ role: string; content: string; kind: 'user' | 'draft' }> = [];
+      const dialogueHistory = state.values.dialogueHistory || [];
+
+      // Process dialogue history which contains user prompts and draft responses
+      for (const msg of dialogueHistory) {
+        if (msg instanceof HumanMessage) {
+          const content = this.renderMessageContent(msg);
+          if (content) {
+            messages.push({ role: 'user', content, kind: 'user' });
+          }
+        } else if (msg instanceof AIMessage) {
+          const content = this.renderMessageContent(msg);
+          if (content) {
+            messages.push({ role: 'assistant', content, kind: 'draft' });
+          }
+        }
+      }
+
+      return {
+        conversationId,
+        exists: messages.length > 0,
+        messages: messages.length > 0 ? messages : undefined,
+      };
+    } catch (error) {
+      // If state doesn't exist, getState might throw - that's fine, conversation doesn't exist
+      this.logger.debug(`Conversation state not found for ${conversationId}: ${error instanceof Error ? error.message : error}`);
+      return { conversationId, exists: false };
+    }
+  }
+
   private buildAgentTools(): AgentToolDefinition[] {
     return [
       {
@@ -690,11 +736,20 @@ If in doubt, prioritize clarity, specificity, and a conversational tone.`
       .join('\n');
   }
 
-  private buildConversationId(userId: string, threadId?: string) {
-    if (threadId) {
-      return `composition-${userId}-${threadId}`;
-    }
-    return `composition-${userId}-${randomUUID()}`;
+  async resetConversation(userId: string, threadId: string): Promise<{ conversationId: string }> {
+    // Generate a new conversationId with a timestamp to ensure it's unique
+    const newConversationId = this.buildConversationId(userId, threadId, true);
+    
+    // Note: We don't delete the old checkpoint as MemorySaver doesn't expose a delete method
+    // The old conversation will remain in memory but won't be accessed with the new ID
+    // For production with PostgresSaver, you could implement checkpoint deletion
+    
+    return { conversationId: newConversationId };
+  }
+
+  private buildConversationId(userId: string, threadId?: string, reset = false) {
+    const baseId = `composition-${userId}-${threadId}-${randomUUID()}`;
+    return baseId;
   }
 }
 

@@ -38,3 +38,25 @@ export const RESUME_DRAFT_COMPOSITION_MUTATION = gql`
   }
 `;
 
+export const GET_CONVERSATION_STATE_QUERY = gql`
+  query GetConversationState($conversationId: String!) {
+    getConversationState(conversationId: $conversationId) {
+      conversationId
+      exists
+      messages {
+        role
+        content
+        kind
+      }
+    }
+  }
+`;
+
+export const RESET_CONVERSATION_MUTATION = gql`
+  mutation ResetConversation($threadId: String!) {
+    resetConversation(threadId: $threadId) {
+      conversationId
+    }
+  }
+`;
+

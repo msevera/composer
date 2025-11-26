@@ -62,4 +62,34 @@ export const ComposeDraftAgentResponse = createUnionType({
   },
 });
 
+@ObjectType()
+export class ConversationMessage {
+  @Field()
+  role: string;
+
+  @Field()
+  content: string;
+
+  @Field()
+  kind: string;
+}
+
+@ObjectType()
+export class ConversationState {
+  @Field()
+  conversationId: string;
+
+  @Field()
+  exists: boolean;
+
+  @Field(() => [ConversationMessage], { nullable: true })
+  messages?: ConversationMessage[];
+}
+
+@ObjectType()
+export class ResetConversationResult {
+  @Field()
+  conversationId: string;
+}
+
 

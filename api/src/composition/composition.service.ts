@@ -43,6 +43,14 @@ export class CompositionService {
       userResponse: input.userResponse,
     });
   }
+
+  async getConversationState(conversationId: string) {
+    return this.compositionAgentService.getConversationState(conversationId);
+  }
+
+  async resetConversation(userId: string, threadId: string) {
+    return this.compositionAgentService.resetConversation(userId, threadId);
+  }
 }
 
 

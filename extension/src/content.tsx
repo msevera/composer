@@ -7,6 +7,8 @@ import { Copy, RotateCcw, Square, Check, Minimize2, Maximize2 } from "lucide-rea
 import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
+import { apolloClient } from "./lib/apollo-client";
+import { GET_CONVERSATION_STATE_QUERY } from "./lib/graphql/composition";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://mail.google.com/*"],
@@ -37,8 +39,6 @@ const PlasmoOverlay = () => {
     Array<{ id: string; text: string; kind: "user" | "draft" }>
   >([]);
   const [draftIndicator, setDraftIndicator] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [threadId, setThreadId] = useState<string | undefined>(() => getThreadIdFromDom());
   const isThreadView = useIsGmailThreadView();
   const [isMinimized, setIsMinimized] = useState(() => getSavedMinimizedState());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -51,6 +51,7 @@ const PlasmoOverlay = () => {
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
   const [hasRequiredGmailScopes, setHasRequiredGmailScopes] = useState(false);
   const [isCheckingGmailScopes, setIsCheckingGmailScopes] = useState(false);
+  const previousThreadIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -64,32 +65,86 @@ const PlasmoOverlay = () => {
   }, [message]);
 
   useEffect(() => {
-    const updateThreadContext = () => {
-      const id = getThreadIdFromDom();
-      setThreadId(id);
-      if (id) {
-        const storedConversation = safeLocalStorageGet(id);
-        setConversationId(storedConversation);
-      } else {
-        setConversationId(null);
+    const updateThreadContext = async () => {
+      const threadId = getThreadIdFromDom();
+      const previousThreadId = previousThreadIdRef.current;
+      
+      // If thread changed, clear messages
+      if (previousThreadId !== threadId) {
+        setAgentMessages([]);
+        previousThreadIdRef.current = threadId;
+      }
+      
+      if (!threadId) {
+        setAgentMessages([]);
+        return;
+      }
+
+      // Get conversationId from storage (if exists)
+      const conversationId = getConversationIdFromStorage(threadId);
+       
+      // Only fetch conversation state if we have a conversationId
+      // If no conversationId exists, the conversation should be empty (first visit)
+      if (!conversationId) {
+        // No conversationId - this is a first visit, keep conversation empty
+        setAgentMessages([]);
+        return;
+      }
+
+      // Fetch conversation state from API using the conversationId
+      try {
+        const { data } = await apolloClient.query({
+          query: GET_CONVERSATION_STATE_QUERY,
+          variables: { conversationId },
+          fetchPolicy: "network-only", // Always fetch fresh data
+        });
+
+        if (data?.getConversationState?.exists && data.getConversationState.messages) {
+          // Load conversation history
+          const messages = data.getConversationState.messages.map((msg: any) => ({
+            id: generateMessageId(),
+            text: msg.content,
+            kind: msg.kind as "user" | "draft",
+          }));
+          setAgentMessages(messages);
+        } else {
+          // No conversation exists - remove from storage and clear messages
+          saveConversationIdToStorage(threadId, null);
+          setAgentMessages([]);
+        }
+      } catch (error) {
+        console.error("Failed to fetch conversation state:", error);
+        // On error, remove from storage and clear messages
+        saveConversationIdToStorage(threadId, null);
+        setAgentMessages([]);
       }
     };
 
-    updateThreadContext();
+    void updateThreadContext();
 
     if (!isThreadView) {
       return;
     }
 
-    const observer = new MutationObserver(() => updateThreadContext());
+    const observer = new MutationObserver(() => {
+      void updateThreadContext();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("hashchange", updateThreadContext);
-    window.addEventListener("popstate", updateThreadContext);
+    
+    const handleHashChange = () => {
+      void updateThreadContext();
+    };
+    const handlePopState = () => {
+      void updateThreadContext();
+    };
+    
+    window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener("popstate", handlePopState);
 
     return () => {
       observer.disconnect();
-      window.removeEventListener("hashchange", updateThreadContext);
-      window.removeEventListener("popstate", updateThreadContext);
+      window.removeEventListener("hashchange", handleHashChange);
+      window.removeEventListener("popstate", handlePopState);
     };
   }, [isThreadView]);
 
@@ -150,7 +205,7 @@ const PlasmoOverlay = () => {
           session &&
           hasRequiredGmailScopes &&
           isThreadView &&
-          threadId,
+          getThreadIdFromDom(),
       ),
     [
       hasRequiredGmailScopes,
@@ -158,7 +213,6 @@ const PlasmoOverlay = () => {
       isPending,
       isThreadView,
       session,
-      threadId,
     ],
   );
 
@@ -191,11 +245,13 @@ const PlasmoOverlay = () => {
         throw new Error("Invalid response from composer agent");
       }
 
+      const threadId = getThreadIdFromDom();
       const nextConversationId = response.conversationId ?? null;
+      
+      // Save conversationId to localStorage for this thread
       if (threadId && nextConversationId) {
-        safeLocalStorageSet(threadId, nextConversationId);
+        saveConversationIdToStorage(threadId, nextConversationId);
       }
-      setConversationId(nextConversationId);
 
       const latestActivity = getLatestActivity(response.activity);
 
@@ -228,7 +284,7 @@ const PlasmoOverlay = () => {
 
       setMessage("");
     },
-    [threadId],
+    [],
   );
 
   const closeEventSource = useCallback(() => {
@@ -373,10 +429,14 @@ const PlasmoOverlay = () => {
 
   const startStream = useCallback(
     (inputText: string) => {
+      const threadId = getThreadIdFromDom();
       if (!threadId) {
         console.error("Unable to find the Gmail thread. Please refresh and try again.");
         return;
       }
+      
+      const conversationId = getConversationIdFromStorage(threadId);
+      
       setDraftIndicator(null);
       if (inputText.trim()) {
         setAgentMessages((prev) => [
@@ -414,7 +474,7 @@ const PlasmoOverlay = () => {
         console.error("Stream interrupted. Please try again.");
       };
     },
-    [threadId, conversationId, handleStreamEvent, closeEventSource],
+    [handleStreamEvent, closeEventSource],
   );
 
   const handleSubmit = useCallback(
@@ -424,6 +484,7 @@ const PlasmoOverlay = () => {
         return;
       }
 
+      const threadId = getThreadIdFromDom();
       if (!threadId) {
         console.error("Unable to find the Gmail thread. Please refresh and try again.");
         return;
@@ -440,7 +501,7 @@ const PlasmoOverlay = () => {
       startStream(message.trim());
       setMessage("");
     },
-    [isRunning, message, threadId, startStream],
+    [isRunning, message, startStream],
   );
 
   const handleStop = useCallback(() => {
@@ -463,11 +524,15 @@ const PlasmoOverlay = () => {
       closeEventSource();
       setIsRunning(false);
     }
-    const newConversationId = threadId ? generateConversationId() : null;
-    if (threadId && newConversationId) {
-      safeLocalStorageSet(threadId, newConversationId);
+
+    const threadId = getThreadIdFromDom();
+    
+    // Remove conversationId from storage
+    if (threadId) {
+      saveConversationIdToStorage(threadId, null);
     }
-    setConversationId(newConversationId);
+
+    // Clear local state
     setAgentMessages([]);
     setDraftIndicator(null);
     setCopiedDraftId(null);
@@ -479,8 +544,8 @@ const PlasmoOverlay = () => {
     }
     currentDraftMessageIdRef.current = null;
     lastStreamedDraftIdRef.current = null;
-    console.log("Conversation reset");
-  }, [closeEventSource, isRunning, threadId]);
+    console.log("Conversation reset - new conversationId will be generated on next compose");
+  }, [closeEventSource, isRunning]);
 
   const handleCopyDraft = useCallback(async (content: string, messageId?: string) => {
     if (!content) {
@@ -791,33 +856,6 @@ function getThreadIdFromDom() {
   return undefined;
 }
 
-function safeLocalStorageGet(threadId: string) {
-  try {
-    return window.localStorage.getItem(getConversationStorageKey(threadId));
-  } catch {
-    return null;
-  }
-}
-
-function safeLocalStorageSet(threadId: string, conversationId: string) {
-  try {
-    window.localStorage.setItem(getConversationStorageKey(threadId), conversationId);
-  } catch {
-    // ignore write errors
-  }
-}
-
-function safeLocalStorageRemove(threadId: string) {
-  try {
-    window.localStorage.removeItem(getConversationStorageKey(threadId));
-  } catch {
-    // ignore remove errors
-  }
-}
-
-function getConversationStorageKey(threadId: string) {
-  return `snail-conversation-${threadId}`;
-}
 
 type ComposeStreamEvent =
   | { type: "activity"; message: string }
@@ -855,12 +893,6 @@ function looksLikeDraft(content: string) {
   return hasGreeting || hasFarewell || hasParagraphBreak;
 }
 
-function generateConversationId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `conv-${(crypto as Crypto).randomUUID()}`;
-  }
-  return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 function generateMessageId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -894,6 +926,36 @@ function persistMinimizedState(value: boolean) {
   }
   try {
     window.localStorage.setItem(MINIMIZED_STORAGE_KEY, String(value));
+  } catch {
+    // ignore write errors
+  }
+}
+
+function getConversationStorageKey(threadId: string) {
+  return `snail-conversation-${threadId}`;
+}
+
+function getConversationIdFromStorage(threadId: string): string | null {
+  if (typeof window === "undefined" || !threadId) {
+    return null;
+  }
+  try {
+    return window.localStorage.getItem(getConversationStorageKey(threadId));
+  } catch {
+    return null;
+  }
+}
+
+function saveConversationIdToStorage(threadId: string, conversationId: string | null) {
+  if (typeof window === "undefined" || !threadId) {
+    return;
+  }
+  try {
+    if (conversationId) {
+      window.localStorage.setItem(getConversationStorageKey(threadId), conversationId);
+    } else {
+      window.localStorage.removeItem(getConversationStorageKey(threadId));
+    }
   } catch {
     // ignore write errors
   }
