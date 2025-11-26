@@ -447,7 +447,7 @@ export class CompositionAgentService {
       state.recipientSummary ? 'Recipient targeting identified.' : 'Recipient targeting missing.',
     ];
     const userPromptSection = state.latestUserPrompt
-      ? `Most recent user request (treat as highest priority):\n${state.latestUserPrompt}`
+      ? `User response input:\n${state.latestUserPrompt}`
       : 'No additional instructions were supplied by the user.';
     return [
       'You are the planning agent responsible for deciding whether there is enough context to draft the reply.',
@@ -456,9 +456,9 @@ export class CompositionAgentService {
       '- calendar_lookup: scheduling and availability details.',
       '- vector_lookup: internal knowledge base summaries.',
       'Once you determine that the context is sufficient, DO NOT call any tools.',
-      'Instead, respond with clear concise drafting instructions for the writing agent.',
+      'Just finish executing.',
       'Never ask the human follow-up questions.',
-      'Never respond to the user directly, only provide drafting instructions for the writing agent.',
+      'Never respond to the user directly.',
       '',
       userPromptSection,
       '',
@@ -538,23 +538,31 @@ export class CompositionAgentService {
 
   private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
     const contextSections = [
-      context.userPrompt && `Most recent user instruction:\n${context.userPrompt}`,
+      context.userPrompt && `User response input:\n${context.userPrompt}`,
+      context.dialogue?.length && `Conversation so far:\n${this.renderDialogueTranscript(context.dialogue)}`,
       context.threadSummary && `Thread context:\n${context.threadSummary}`,
       context.recipientSummary && `Who to address:\n${context.recipientSummary}`,
       context.searchSummary && `Historical references:\n${context.searchSummary}`,
       context.calendarSummary && `Calendar availability:\n${context.calendarSummary}`,
       context.vectorSummary && `Knowledge base context:\n${context.vectorSummary}`,
-      context.dialogue?.length && `Conversation so far:\n${this.renderDialogueTranscript(context.dialogue)}`,
     ]
       .filter(Boolean)
       .join('\n\n');
 
     const promptMessages = [
       new SystemMessage(
-        [
-          'You are an expert email writer. Check the context and analyze how user wants to respond.',
-          'Return only the body of the email.',
-          'Do not include metadata or JSON.'].join('\n'),
+        `Write the body of a casual, natural-sounding email in response to the user's input and any provided context.
+
+Carefully review the user's request and the surrounding context to understand how they want to respond. Avoid vague or generic replies—address specific details and requests from the user or context whenever possible. Write informally and conversationally, as a normal person would, and avoid stilted or overly formal language.
+
+Return only the body of the email.
+
+# Notes
+
+- Always write naturally and casually, like a regular person—not as a robot, template, or overly-formal writer.
+- Do not include generic statements; make the email specific to the user's request/context.
+
+If in doubt, prioritize clarity, specificity, and a conversational tone.`
       ),
       new HumanMessage(
         [
