@@ -1,11 +1,11 @@
-# Smail - Gmail Email Management System
+# ComposerAI - Gmail Email Management System
 
 A monorepo application for managing Gmail emails with AI-powered features, built with NestJS, GraphQL, MongoDB, and Next.js.
 
 ## Project Structure
 
 ```
-smail/
+composerai/
 ├── api/          # NestJS GraphQL API
 └── web/          # Next.js frontend
 ```
@@ -44,7 +44,7 @@ npm install
 
 3. Create `.env` file:
 ```env
-MONGODB_URI=mongodb://localhost:27017/smail
+MONGODB_URI=mongodb://localhost:27017/composerai
 BETTER_AUTH_SECRET=your-secret-key-here
 BETTER_AUTH_URL=http://localhost:4000
 GOOGLE_CLIENT_ID=your-google-client-id
@@ -108,7 +108,7 @@ To enable vector search for email embeddings:
 2. Navigate to "Atlas Search" > "Create Search Index"
 3. Create a vector search index on the `email-embeddings` collection:
    - Index name: `email_embedding_index`
-   - Database: `smail` (or your database name)
+   - Database: `composerai` (or your database name)
    - Collection: `email-embeddings`
    - Index definition:
    ```json

@@ -11,7 +11,7 @@ export class GmailService {
     @Inject(getConnectionToken()) private connection: Connection,
     private configService: ConfigService,
   ) { }
-  private readonly refreshLabelName = this.configService.get('GMAIL_REFRESH_LABEL') || 'SmailTempRefresh';
+  private readonly refreshLabelName = this.configService.get('GMAIL_REFRESH_LABEL') || 'ComposerAITempRefresh';
 
   async getGmailAccount(userId: string): Promise<Record<string, any> | null> {
     const db = this.connection.db;

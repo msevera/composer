@@ -907,7 +907,7 @@ function formatToolName(name: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-const MINIMIZED_STORAGE_KEY = "snail-composer-minimized";
+const MINIMIZED_STORAGE_KEY = "composerai-composer-minimized";
 
 function getSavedMinimizedState() {
   if (typeof window === "undefined") {
@@ -932,7 +932,7 @@ function persistMinimizedState(value: boolean) {
 }
 
 function getConversationStorageKey(threadId: string) {
-  return `snail-conversation-${threadId}`;
+  return `composerai-conversation-${threadId}`;
 }
 
 function getConversationIdFromStorage(threadId: string): string | null {

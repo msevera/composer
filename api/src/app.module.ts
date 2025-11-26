@@ -22,7 +22,7 @@ import { bearer, jwt } from "better-auth/plugins";
     }),
     MongooseModule.forRootAsync({
       useFactory: () => ({
-        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/smail',
+        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/composerai',
       }),
     }),
     BullModule.forRootAsync({
