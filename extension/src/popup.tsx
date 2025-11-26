@@ -1,19 +1,31 @@
 import "@/style.css";
 
-import type { FormEvent } from "react";
-import { useMemo, useState } from "react";
-import { Loader2, Mail, Lock, LogOut, User, MessageSquare } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import type { SVGProps } from "react";
+import { Loader2, LogIn, UserPlus, MessageSquare } from "lucide-react";
 import { toast, Toaster } from "sonner";
 
 import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
-import { Label } from "./components/ui/label";
 
 type SessionData = ReturnType<typeof authClient.useSession>["data"];
 
 const WEBSITE_URL = process.env.PLASMO_PUBLIC_WEBSITE_URL || "http://localhost:3000";
+const REQUIRED_GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+];
+
+const GmailIcon = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="52 42 88 66" aria-hidden="true" {...props}>
+    <path fill="#4285f4" d="M58 108h14V74L52 59v43c0 3.32 2.69 6 6 6" />
+    <path fill="#34a853" d="M120 108h14c3.32 0 6-2.69 6-6V59l-20 15" />
+    <path fill="#fbbc04" d="M120 48v26l20-15v-8c0-7.42-8.47-11.65-14.4-7.2" />
+    <path fill="#ea4335" d="M72 74V48l24 18 24-18v26L96 92" />
+    <path fill="#c5221f" d="M52 51v8l20 15V48l-5.6-4.2c-5.94-4.45-14.4-.22-14.4 7.2" />
+  </svg>
+);
 
 function IndexPopup() {
   const { data: session, error, isPending } = authClient.useSession();
@@ -23,11 +35,7 @@ function IndexPopup() {
       return <LoadingState />;
     }
 
-    if (!session) {
-      return <LoginForm />;
-    }
-
-    return <AuthenticatedPanel session={session} />;
+    return session ? <AuthenticatedPanel session={session} /> : <AuthCtas />;
   }, [isPending, session]);
 
   const handleAvatarClick = () => {
@@ -49,14 +57,11 @@ function IndexPopup() {
   };
 
   return (
-    <div className="min-w-[380px] w-[420px] bg-gradient-to-br from-neutral-50 to-white text-neutral-900 relative">
+    <div className="min-w-[380px] w-[420px] bg-white text-neutral-900 relative">
       <Toaster position="top-center" />
-      <div className="px-8 py-10">
+      <div className="px-8 py-8">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
-              <MessageSquare className="h-5 w-5 text-emerald-600" />
-            </div>
             <div>
               <h1 className="text-lg font-semibold text-neutral-900">Composer AI</h1>
               <p className="text-xs text-neutral-500">AI-powered reply composition</p>
@@ -65,7 +70,7 @@ function IndexPopup() {
           {session?.user && (
             <button
               onClick={handleAvatarClick}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
               title="Open Composer AI website"
             >
               <span className="text-sm font-semibold">
@@ -96,109 +101,105 @@ function LoadingState() {
   );
 }
 
-function LoginForm() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (isSubmitting) {
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      const { error } = await authClient.signIn.email({
-        email,
-        password,
-      });
-
-      if (error) {
-        toast.error(error.message);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
+function AuthCtas() {
+  const openDashboardPath = (path: string) => {
+    window.open(`${WEBSITE_URL}${path}`, "_blank");
   };
 
   return (
-    <div>
-      <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
-        <div className="space-y-2">
-          <Label htmlFor="popup-email" className="text-sm font-medium text-neutral-700">
-            Email address
-          </Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-            <Input
-              id="popup-email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              autoComplete="email"
-              className="pl-10 h-11 border-neutral-200 bg-white focus:border-emerald-500 focus:ring-emerald-500/20"
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="popup-password" className="text-sm font-medium text-neutral-700">
-            Password
-          </Label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-            <Input
-              id="popup-password"
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              autoComplete="current-password"
-              className="pl-10 h-11 border-neutral-200 bg-white focus:border-emerald-500 focus:ring-emerald-500/20"
-            />
-          </div>
-        </div>
-        <Button
-          type="submit"
-          className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={isSubmitting || !email || !password}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Signing in…
-            </>
-          ) : (
-            "Sign in"
-          )}
-        </Button>
-      </form>
+    <div className="flex gap-2 items-center justify-center">
+      <button
+        className="flex-1 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 ring-1 ring-inset ring-slate-200"
+        onClick={() => openDashboardPath("/login")}
+      >
+        <LogIn className="mr-2 h-4 w-4" />
+        Login
+      </button>
+      <button
+        className="flex-1 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+        onClick={() => openDashboardPath("/signup")}
+      >
+        <UserPlus className="mr-2 h-4 w-4 text-white" />
+        <span className='whitespace-nowrap'>
+          Sign up
+        </span>
+      </button>
     </div>
-  )
+  );
 }
 
 function AuthenticatedPanel({ session }: { session: SessionData }) {
-  const email = session?.user?.email ?? "Unknown user";
-  const name = session?.user?.name;
+  const [hasRequiredScopes, setHasRequiredScopes] = useState(false);
+  const [isCheckingScopes, setIsCheckingScopes] = useState(true);
 
-  const handleSignOut = async () => {
-    const { error } = await authClient.signOut();
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+  useEffect(() => {
+    let isActive = true;
 
-    toast.success("Signed out successfully");
+    const verifyScopes = async () => {
+      try {
+        setIsCheckingScopes(true);
+        const accounts = await authClient.listAccounts();
+        const accountList = accounts.data ?? [];
+        const gmailAccount = accountList.find(
+          (account: any) => account.providerId === "google",
+        );
+        const gmailHasScopes = REQUIRED_GMAIL_SCOPES.every((scope) =>
+          gmailAccount?.scopes?.includes?.(scope),
+        );
+
+        if (isActive) {
+          setHasRequiredScopes(Boolean(gmailAccount && gmailHasScopes));
+        }
+      } catch (error) {
+        console.error("Failed to verify Gmail scopes", error);
+        if (isActive) {
+          setHasRequiredScopes(false);
+        }
+      } finally {
+        if (isActive) {
+          setIsCheckingScopes(false);
+        }
+      }
+    };
+
+    void verifyScopes();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handleOpenDashboard = () => {
+    window.open(`${WEBSITE_URL}/dashboard`, "_blank");
+  };
+
+  const handleConnectGmail = () => {
+    window.open(`${WEBSITE_URL}/dashboard`, "_blank");
   };
 
   return (
     <div>
-      <p className="text-sm text-neutral-500">
-        You're signed in and ready to use Composer AI
-      </p>
+      {(!isCheckingScopes && !hasRequiredScopes) ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+          <p className="mb-3 text-sm font-medium text-slate-800">
+            Connect Gmail to see the assistant in your inbox.
+          </p>
+          <button
+            className="inline-flex w-full min-w-[180px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+            onClick={handleConnectGmail}
+          >
+            <GmailIcon className="h-4 w-4" />
+            <span>Connect Gmail</span>
+          </button>
+        </div>
+      ) : (
+        <button
+          className="inline-flex w-full min-w-[180px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+          onClick={handleOpenDashboard}
+        >
+          <span>Open dashboard</span>
+        </button>
+      )}
     </div>
-  )
+  );
 }

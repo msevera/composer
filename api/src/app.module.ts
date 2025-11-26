@@ -53,31 +53,21 @@ import { bearer, jwt } from "better-auth/plugins";
             advanced: {
               defaultCookieAttributes: {
                 sameSite: "none",
-                secure: true,
-               // partitioned: true // newer browser standards
+                secure: true
               }
             },
             database: mongodbAdapter(connection.db as any, {
               usePlural: true,
-            }),
-            emailAndPassword: {
-              enabled: true,
-            },
+            }),            
             socialProviders: {
               google: {
                 clientId: configService.get('GOOGLE_CLIENT_ID') || '',
                 clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
                 enabled: true,
-                scope: [
-                  'https://www.googleapis.com/auth/gmail.readonly',
-                  'https://www.googleapis.com/auth/gmail.send',
-                  'https://www.googleapis.com/auth/gmail.compose',
-                  'https://www.googleapis.com/auth/gmail.modify',
-                  'https://www.googleapis.com/auth/calendar.readonly',
-                  'https://www.googleapis.com/auth/calendar.events',
-                  'https://www.googleapis.com/auth/userinfo.email',
-                  'https://www.googleapis.com/auth/userinfo.profile',
-                ],
+                // scope: [
+                //   'https://www.googleapis.com/auth/userinfo.email',
+                //   'https://www.googleapis.com/auth/userinfo.profile',
+                // ],
                 accessType: "offline",
                 prompt: "select_account consent",
               },

@@ -11,11 +11,14 @@ export class User {
   @Field({ nullable: true })
   lastSignIn?: Date;
 
-  @Field()
-  isEmailIndexingInProgress: boolean;
+  @Field({ nullable: true })
+  name?: string;
 
   @Field({ nullable: true })
-  emailIndexingStartedAt?: Date;
+  sendProductUpdates?: boolean;
+
+  @Field({ nullable: true })
+  onboardingCompleted?: boolean;
 
   @Field()
   createdAt: Date;

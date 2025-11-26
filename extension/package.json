@@ -46,6 +46,16 @@
     ],
     "permissions": [
       "cookies"
+    ],
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "manifest.json"
+        ],
+        "matches": [
+         "http://localhost/*"
+        ]
+      }
     ]
   }
 }

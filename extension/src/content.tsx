@@ -24,6 +24,10 @@ const GRAPHQL_ENDPOINT =
   process.env.PLASMO_PUBLIC_API_URL ?? "http://localhost:4000/graphql";
 const API_BASE_URL = GRAPHQL_ENDPOINT.replace(/\/graphql$/i, "");
 const COMPOSITION_STREAM_URL = `${API_BASE_URL}/composition/stream`;
+const requiredGmailScopes = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+];
 
 const PlasmoOverlay = () => {
   const { data: session, isPending } = authClient.useSession();
@@ -45,6 +49,8 @@ const PlasmoOverlay = () => {
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const [copiedDraftId, setCopiedDraftId] = useState<string | null>(null);
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
+  const [hasRequiredGmailScopes, setHasRequiredGmailScopes] = useState(false);
+  const [isCheckingGmailScopes, setIsCheckingGmailScopes] = useState(false);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -88,9 +94,72 @@ const PlasmoOverlay = () => {
   }, [isThreadView]);
 
 
+  useEffect(() => {
+    let isActive = true;
+
+    const verifyGmailScopes = async () => {
+      if (!session) {
+        if (isActive) {
+          setHasRequiredGmailScopes(false);
+          setIsCheckingGmailScopes(false);
+        }
+        return;
+      }
+
+      if (isActive) {
+        setIsCheckingGmailScopes(true);
+      }
+
+      try {
+        const accounts = await authClient.listAccounts();
+        const accountList = accounts.data ?? [];
+        const gmailAccount = accountList.find(
+          (account: any) => account.providerId === "google",
+        );
+        const gmailHasScopes = requiredGmailScopes.every((scope) =>
+          gmailAccount?.scopes?.includes?.(scope),
+        );
+
+        if (isActive) {
+          setHasRequiredGmailScopes(Boolean(gmailAccount && gmailHasScopes));
+        }
+      } catch (error) {
+        console.error("Failed to verify Gmail scopes", error);
+        if (isActive) {
+          setHasRequiredGmailScopes(false);
+        }
+      } finally {
+        if (isActive) {
+          setIsCheckingGmailScopes(false);
+        }
+      }
+    };
+
+    void verifyGmailScopes();
+
+    return () => {
+      isActive = false;
+    };
+  }, [session]);
+
   const shouldRender = useMemo(
-    () => Boolean(!isPending && session && isThreadView && threadId),
-    [isPending, isThreadView, session, threadId],
+    () =>
+      Boolean(
+        !isPending &&
+          !isCheckingGmailScopes &&
+          session &&
+          hasRequiredGmailScopes &&
+          isThreadView &&
+          threadId,
+      ),
+    [
+      hasRequiredGmailScopes,
+      isCheckingGmailScopes,
+      isPending,
+      isThreadView,
+      session,
+      threadId,
+    ],
   );
 
   // Auto-scroll to bottom when new messages arrive

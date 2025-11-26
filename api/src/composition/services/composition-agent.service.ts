@@ -84,6 +84,7 @@ interface ComposeDraftContext {
   vectorSummary?: string | null;
   instructions?: string;
   dialogue?: BaseMessage[];
+  userPrompt?: string | null;
 }
 
 interface ToolExecutionResult {
@@ -132,6 +133,10 @@ const AgentState = Annotation.Root({
   userId: Annotation<string | null>(),
   threadId: Annotation<string | null>(),
   pendingUserPrompt: Annotation<string | null>(),
+  latestUserPrompt: Annotation<string | null>({
+    reducer: (left: string | null, right: string | null) => (right === undefined ? left ?? null : right),
+    default: () => null,
+  }),
 });
 
 type AgentStateType = typeof AgentState.State;
@@ -204,6 +209,7 @@ export class CompositionAgentService {
         userId: options.userId,
         threadId: options.threadId,
         pendingUserPrompt: options.userPrompt,
+        latestUserPrompt: options.userPrompt,
         streamingEnabled: Boolean(execConfig.writer),
       },
       {
@@ -309,7 +315,7 @@ export class CompositionAgentService {
     return {
       messages: [aiResponse],
       pendingUserPrompt: null,
-      dialogueHistory: userMessage ? [userMessage] : [],
+      latestUserPrompt: state.pendingUserPrompt ?? state.latestUserPrompt ?? null,
     };
   }
 
@@ -399,6 +405,7 @@ export class CompositionAgentService {
       vectorSummary: state.vectorSummary,
       instructions,
       dialogue: state.dialogueHistory,
+      userPrompt: state.latestUserPrompt,
     }, Boolean(state.streamingEnabled));
     const response = new AIMessage(
       JSON.stringify({
@@ -408,10 +415,15 @@ export class CompositionAgentService {
       }),
     );
     const draftDialogueMessage = new AIMessage(draft);
+    const dialogueUpdates: BaseMessage[] = [];
+    if (state.latestUserPrompt) {
+      dialogueUpdates.push(new HumanMessage(state.latestUserPrompt));
+    }
+    dialogueUpdates.push(draftDialogueMessage);
     return {
       messages: [response],
       activity: 'Email draft generated.',
-      dialogueHistory: [draftDialogueMessage],
+      dialogueHistory: dialogueUpdates,
     };
   }
 
@@ -434,6 +446,9 @@ export class CompositionAgentService {
       state.vectorSummary ? 'Vector knowledge context available.' : 'No vector knowledge context gathered.',
       state.recipientSummary ? 'Recipient targeting identified.' : 'Recipient targeting missing.',
     ];
+    const userPromptSection = state.latestUserPrompt
+      ? `Most recent user request (treat as highest priority):\n${state.latestUserPrompt}`
+      : 'No additional instructions were supplied by the user.';
     return [
       'You are the planning agent responsible for deciding whether there is enough context to draft the reply.',
       'Evaluate the currently available context. If key information is missing, call one or more tools in parallel to fetch it:',
@@ -444,6 +459,8 @@ export class CompositionAgentService {
       'Instead, respond with clear concise drafting instructions for the writing agent.',
       'Never ask the human follow-up questions.',
       'Never respond to the user directly, only provide drafting instructions for the writing agent.',
+      '',
+      userPromptSection,
       '',
       state.threadSummary ? `Thread summary:\n${state.threadSummary}` : '',
       '',
@@ -521,6 +538,7 @@ export class CompositionAgentService {
 
   private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
     const contextSections = [
+      context.userPrompt && `Most recent user instruction:\n${context.userPrompt}`,
       context.threadSummary && `Thread context:\n${context.threadSummary}`,
       context.recipientSummary && `Who to address:\n${context.recipientSummary}`,
       context.searchSummary && `Historical references:\n${context.searchSummary}`,

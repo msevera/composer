@@ -6,8 +6,8 @@ import { ApolloWrapper } from './apollo-wrapper';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Snail App',
-  description: 'Snail Monorepo Application',
+  title: 'Composer AI',
+  description: 'Composer AI Application',
 };
 
 export default function RootLayout({

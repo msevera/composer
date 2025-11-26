@@ -9,13 +9,16 @@ export class User {
   email: string;
 
   @Prop()
+  name?: string;
+
+  @Prop()
   lastSignIn?: Date;
 
   @Prop({ default: false })
-  isEmailIndexingInProgress: boolean;
+  sendProductUpdates?: boolean;
 
-  @Prop()
-  emailIndexingStartedAt?: Date;
+  @Prop({ default: false })
+  onboardingCompleted?: boolean;
 
   @Prop()
   createdAt?: Date;
