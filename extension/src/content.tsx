@@ -64,8 +64,13 @@ const PlasmoOverlay = () => {
     element.style.height = `${nextHeight}px`;
   }, [message]);
 
-  useEffect(() => {
+  useEffect(() => {    
+    if (isRunning) {
+      return;
+    }
+
     const updateThreadContext = async () => {
+      console.log("updateThreadContext");
       const threadId = getThreadIdFromDom();
       const previousThreadId = previousThreadIdRef.current;
       
@@ -146,7 +151,7 @@ const PlasmoOverlay = () => {
       window.removeEventListener("hashchange", handleHashChange);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [isThreadView]);
+  }, [isThreadView, isRunning]);
 
 
   useEffect(() => {
@@ -238,54 +243,6 @@ const PlasmoOverlay = () => {
   const handleMinimize = useCallback(() => {
     setIsMinimized(true);
   }, []);
-
-  const handleAgentResponse = useCallback(
-    (response: Record<string, any>) => {
-      if (!response) {
-        throw new Error("Invalid response from composer agent");
-      }
-
-      const threadId = getThreadIdFromDom();
-      const nextConversationId = response.conversationId ?? null;
-      
-      // Save conversationId to localStorage for this thread
-      if (threadId && nextConversationId) {
-        saveConversationIdToStorage(threadId, nextConversationId);
-      }
-
-      const latestActivity = getLatestActivity(response.activity);
-
-      const hasFailure = activityHasFailure(response.activity);
-      const draftText = "draftContent" in response ? response.draftContent : undefined;
-      const isDraftResponse =
-        response.status === "DRAFT_READY" &&
-        Boolean(draftText) &&
-        !hasFailure;
-      const displayText = draftText;
-      const streamedDraftId = lastStreamedDraftIdRef.current;
-
-      if (displayText && isDraftResponse && !streamedDraftId) {
-        setAgentMessages((prev) => [
-          ...prev,
-          {
-            id: generateMessageId(),
-            text: displayText,
-            kind: "draft",
-          },
-        ]);
-      }
-
-      setDraftIndicator(null);
-      lastStreamedDraftIdRef.current = null;
-
-      if (!isDraftResponse && latestActivity) {
-        setDraftIndicator(latestActivity);
-      }
-
-      setMessage("");
-    },
-    [],
-  );
 
   const closeEventSource = useCallback(() => {
     if (eventSourceRef.current) {
@@ -407,6 +364,9 @@ const PlasmoOverlay = () => {
           currentDraftMessageIdRef.current = null;
           break;
         }
+        case "start":
+          saveConversationIdToStorage(event.payload.threadId, event.payload.conversationId);
+          break;
         case "error":
           console.error(event.message);
           closeEventSource();
@@ -415,7 +375,6 @@ const PlasmoOverlay = () => {
           setIsRunning(false);
           break;
         case "final":
-          handleAgentResponse(event.payload);
           closeEventSource();
           setDraftIndicator(null);
           setIsRunning(false);
@@ -424,7 +383,7 @@ const PlasmoOverlay = () => {
           break;
       }
     },
-    [closeEventSource, handleAgentResponse],
+    [closeEventSource],
   );
 
   const startStream = useCallback(
@@ -865,33 +824,9 @@ type ComposeStreamEvent =
   | { type: "draft_stream_started" }
   | { type: "draft_chunk"; content: string }
   | { type: "draft_stream_finished"; draft: string }
+  | { type: "start"; payload: { conversationId: string; threadId: string } }
   | { type: "final"; payload: Record<string, any> }
   | { type: "error"; message: string };
-
-function getLatestActivity(activity?: string[] | null) {
-  if (!activity?.length) {
-    return null;
-  }
-  return activity[activity.length - 1] ?? null;
-}
-
-function activityHasFailure(activity?: string[] | null) {
-  if (!activity?.length) {
-    return false;
-  }
-  return activity.some((entry) => entry.toLowerCase().includes("failed"));
-}
-
-function looksLikeDraft(content: string) {
-  const text = content.trim();
-  if (text.length < 60) {
-    return false;
-  }
-  const hasGreeting = /^hi |^hello |^dear /i.test(text);
-  const hasFarewell = /thanks[, ]|regards|sincerely/i.test(text);
-  const hasParagraphBreak = /\n\s*\n/.test(text);
-  return hasGreeting || hasFarewell || hasParagraphBreak;
-}
 
 
 function generateMessageId() {

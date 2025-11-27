@@ -19,22 +19,6 @@ import {
 import { MemorySaver } from '@langchain/langgraph';
 import { UserService } from 'src/user/user.service';
 
-export type AgentDraftReady = {
-  status: 'DRAFT_READY';
-  draftContent: string;
-  conversationId: string;
-  messages: BaseMessage[];
-  activityLog: string[];
-};
-
-export type AgentClarificationNeeded = {
-  status: 'NEEDS_INPUT';
-  question: string;
-  conversationId: string;
-  activityLog: string[];
-};
-
-export type AgentExecutionResult = AgentDraftReady | AgentClarificationNeeded;
 
 export interface ComposeAgentOptions {
   userPrompt: string;
@@ -48,21 +32,8 @@ export interface ResumeAgentOptions {
   userResponse: string;
 }
 
-interface SupervisorDraftResult {
-  status: 'draft';
-  draft: string;
-  activity?: string[];
-}
-
-interface SupervisorClarificationResult {
-  status: 'clarification';
-  question: string;
-  activity?: string[];
-}
-
-type SupervisorOutcome = SupervisorDraftResult | SupervisorClarificationResult;
-
 export type CompositionStreamEvent =
+  | { type: 'start'; payload: { conversationId: string; threadId: string } }
   | { type: 'activity'; message: string }
   | { type: 'tool_start'; tool: string }
   | { type: 'tool_end'; tool: string }
@@ -83,7 +54,6 @@ interface ComposeDraftContext {
   searchSummary?: string | null;
   calendarSummary?: string | null;
   vectorSummary?: string | null;
-  instructions?: string;
   dialogue?: BaseMessage[];
   userPrompt?: string | null;
   userId?: string | null;
@@ -160,8 +130,8 @@ export class CompositionAgentService {
     private readonly calendarService: CalendarService,
     private readonly userService: UserService,
   ) {
-    this.researchModel = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 });
-    this.draftCreatorModel = new ChatOpenAI({ model: 'gpt-4o', temperature: 0.2 });
+    this.researchModel = new ChatOpenAI({ model: 'gpt-4.1-mini' });
+    this.draftCreatorModel = new ChatOpenAI({ model: 'gpt-4.1', temperature: 0 });
 
     const toolDefinitions = this.buildAgentTools();
     this.toolHandlers = Object.fromEntries(toolDefinitions.map((definition) => [definition.metadata.name, definition.handler]));
@@ -183,33 +153,28 @@ export class CompositionAgentService {
     });
   }
 
-  async compose(options: ComposeAgentOptions): Promise<AgentExecutionResult> {
-    if (!options.threadId) {
-      throw new Error('threadId is required to compose a draft.');
-    }
-    return this.executeCompose(options);
-  }
-
   async composeStream(
     options: ComposeAgentOptions,
     writer: (event: CompositionStreamEvent) => void,
     signal?: AbortSignal,
-  ): Promise<AgentExecutionResult> {
+  ): Promise<void> {
     if (!options.threadId) {
       throw new Error('threadId is required to compose a draft.');
     }
-    return this.executeCompose(options, { writer, signal });
+    await this.executeCompose(options, { writer, signal });
   }
 
   private async executeCompose(
     options: ComposeAgentOptions,
     execConfig: ComposeExecutionConfig = {},
-  ): Promise<AgentExecutionResult> {
+  ): Promise<void> {
     const conversationId = options.conversationId || this.buildConversationId(options.userId, options.threadId);
 
-    const finalState = await this.agentGraph.invoke(
+
+    execConfig.writer?.({ type: 'start', payload: { conversationId, threadId: options.threadId } });
+    await this.agentGraph.invoke(
       {
-        messages: [],
+        messages: [new HumanMessage(options.userPrompt)],
         activity: ['Received user request.'],
         userId: options.userId,
         threadId: options.threadId,
@@ -225,24 +190,6 @@ export class CompositionAgentService {
         signal: execConfig.signal,
       },
     );
-
-    const outcome = this.parseSupervisorOutcome(this.extractLastAIMessage(finalState.messages));
-
-    if (!outcome || outcome.status !== 'draft') {
-      throw new Error('Supervisor must always produce a draft.');
-    }
-
-    return {
-      status: 'DRAFT_READY',
-      draftContent: outcome.draft,
-      conversationId,
-      messages: finalState.messages,
-      activityLog: finalState.activity ?? [],
-    };
-  }
-
-  async resume(_options: ResumeAgentOptions): Promise<AgentExecutionResult> {
-    throw new Error('Clarification cycles are not supported in the current agent implementation.');
   }
 
   async getConversationState(conversationId: string): Promise<{
@@ -293,16 +240,16 @@ export class CompositionAgentService {
 
   private buildAgentTools(): AgentToolDefinition[] {
     return [
-      // {
-      //   metadata: tool(async () => '', {
-      //     name: 'search_related_emails',
-      //     description: 'Search the mailbox for related historical context.',
-      //     schema: z.object({
-      //       query: z.string().optional(),
-      //     }),
-      //   }),
-      //   handler: this.handleSearchTool.bind(this),
-      // },
+      {
+        metadata: tool(async () => '', {
+          name: 'search_related_emails',
+          description: 'Search the mailbox for related historical context.',
+          schema: z.object({
+            query: z.string().optional(),
+          }),
+        }),
+        handler: this.handleSearchTool.bind(this),
+      },
       {
         metadata: tool(async () => '', {
           name: 'calendar_lookup',
@@ -352,10 +299,9 @@ export class CompositionAgentService {
 
   private async agentNode(state: AgentStateType) {
     const instructionMessage = new SystemMessage(this.buildAgentLoopPrompt(state));
-    const userMessage = state.pendingUserPrompt ? new HumanMessage(state.pendingUserPrompt) : null;
     const history = state.messages ?? [];
     const aiResponse = await this.reasoningModel.invoke(
-      [instructionMessage, ...history, ...(userMessage ? [userMessage] : [])],
+      [instructionMessage, ...history],
       {
         configurable: {
           threadId: state.threadId ?? undefined,
@@ -446,7 +392,6 @@ export class CompositionAgentService {
     if (!lastAI) {
       throw new Error('Agent did not provide final drafting instructions.');
     }
-    const instructions = this.renderMessageContent(lastAI);
     this.emitEvent({ type: 'activity', message: 'Generating email draft…' });
     const draft = await this.generateDraft({
       threadSummary: state.threadSummary,
@@ -454,19 +399,11 @@ export class CompositionAgentService {
       searchSummary: state.searchSummary,
       calendarSummary: state.calendarSummary,
       vectorSummary: state.vectorSummary,
-      instructions,
       dialogue: state.dialogueHistory,
       userPrompt: state.latestUserPrompt,
       userId: state.userId,
       emailExamples: state.emailExamples ?? [],
     }, Boolean(state.streamingEnabled));
-    const response = new AIMessage(
-      JSON.stringify({
-        status: 'draft',
-        draft,
-        activity: ['Email draft generated.'],
-      }),
-    );
     const draftDialogueMessage = new AIMessage(draft);
     const dialogueUpdates: BaseMessage[] = [];
     if (state.latestUserPrompt) {
@@ -474,7 +411,6 @@ export class CompositionAgentService {
     }
     dialogueUpdates.push(draftDialogueMessage);
     return {
-      messages: [response],
       activity: 'Email draft generated.',
       dialogueHistory: dialogueUpdates,
     };
@@ -492,16 +428,6 @@ export class CompositionAgentService {
   }
 
   private buildAgentLoopPrompt(state: AgentStateType) {
-    const contextFlags = [
-      state.threadSummary ? 'Thread context is loaded.' : 'Thread context missing (should never happen).',
-      state.searchSummary ? 'Historical email summary available.' : 'No historical email context yet.',
-      state.calendarSummary ? 'Calendar availability captured.' : 'No calendar availability captured.',
-      state.vectorSummary ? 'Vector knowledge context available.' : 'No vector knowledge context gathered.',
-      state.recipientSummary ? 'Recipient targeting identified.' : 'Recipient targeting missing.',
-    ];
-    const userPromptSection = state.latestUserPrompt
-      ? `User response input:\n${state.latestUserPrompt}`
-      : 'No additional instructions were supplied by the user.';
     return [
       'You are the planning agent responsible for deciding whether there is enough context to draft the reply.',
       'Evaluate the currently available context. If key information is missing, call one or more tools in parallel to fetch it:',
@@ -512,15 +438,7 @@ export class CompositionAgentService {
       'Just finish executing.',
       'Never ask the human follow-up questions.',
       'Never respond to the user directly.',
-      '',
-      userPromptSection,
-      '',
-      state.threadSummary ? `Thread summary:\n${state.threadSummary}` : '',
-      '',
-      state.recipientSummary ? `Recipients to address:\n${state.recipientSummary}` : 'Recipients not identified yet—use available headers to infer them before drafting.',
-      '',
-      'Current context status:',
-      ...contextFlags,
+      state.threadSummary ? `<email_thread_summary>\n${state.threadSummary}\n<email_thread_summary>` : '',
     ].join('\n');
   }
 
@@ -592,11 +510,11 @@ export class CompositionAgentService {
   private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
     const user = await this.userService.findById(context.userId);
     const contextSections = [
-      context.threadSummary && `<email_thread_summary>${context.threadSummary}<email_thread_summary>`,
-      context.recipientSummary && `<persons_involved>\n${context.recipientSummary}<persons_involved>`,
-      context.searchSummary && `<past_emails>:\n${context.searchSummary}<past_emails>`,
-      context.calendarSummary && `<calendar_availability>${context.calendarSummary}<calendar_availability>`,
-      context.vectorSummary && `<knowledge_base>\n${context.vectorSummary}<knowledge_base>`,
+      context.threadSummary && `<email_thread_summary>\n${context.threadSummary}\n<email_thread_summary>`,
+      context.recipientSummary && `<persons_involved>\n${context.recipientSummary}\n<persons_involved>`,
+      context.searchSummary && `<past_emails>:\n${context.searchSummary}\n<past_emails>`,
+      context.calendarSummary && `<calendar_availability>${context.calendarSummary}\n<calendar_availability>`,
+      context.vectorSummary && `<knowledge_base>\n${context.vectorSummary}\n<knowledge_base>`,
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -605,12 +523,12 @@ export class CompositionAgentService {
       `Here is examples of ${user?.name}'s voice:
       ${context.emailExamples.map((example) => `<example>${example}</example>`).join('\n')}` :
       [`Always write naturally and casually, like a regular person—not as a robot, template, or overly-formal writer.`,
-      `Do not include generic statements; make the email specific to the user's request/context. If in doubt, prioritize clarity, specificity, and a conversational tone.`].join('\n');
+        `Do not include generic statements; make the email specific to the user's request/context. If in doubt, prioritize clarity, specificity, and a conversational tone.`].join('\n');
 
     const promptMessages = [
       new SystemMessage([
         '#role',
-        `You are an AI assitant specialising in replying to incoming emails to ${user?.name}'s Gmail email inbox.`,
+        `You are an AI assistant specialising in replying to incoming emails to ${user?.name}'s Gmail email inbox.`,
         `\n#capabilities and limitations`,
         `You cannot send emails, you can create email drafts. Do not halucinate.`,
         `\n#rules`,
@@ -619,7 +537,8 @@ export class CompositionAgentService {
         `3. Avoid vague or generic replies—address specific details and requests from the user or context whenever possible.`,
         `4. Write informally and conversationally, as a normal person would, and avoid stilted or overly formal language.`,
         `\n#response`,
-        `Reply in casual, modern, professional, concise writing style. Write email drafts in plaintext, not HTML format.`,
+        `Always reply with the email draft. Do not answer directly to the user message.`,
+        `Reply in casual, modern, professional, concise writing style. Write email drafts in plaintext, not HTML format. Do not use em dashes.`,
         `You should sound like ${user?.name}. ${examplesSection}`,
         `\n#context`,
         `Use the following context to reference it when writing the email draft.`,
@@ -683,26 +602,6 @@ export class CompositionAgentService {
     return null;
   }
 
-  private parseSupervisorOutcome(message: AIMessage | null): SupervisorOutcome | null {
-    if (!message) {
-      return null;
-    }
-    const content = this.renderMessageContent(message);
-    try {
-      const parsed = JSON.parse(content);
-      if (parsed.status === 'draft' && typeof parsed.draft === 'string') {
-        return { status: 'draft', draft: parsed.draft, activity: parsed.activity };
-      }
-      if (parsed.status === 'clarification' && typeof parsed.question === 'string') {
-        return { status: 'clarification', question: parsed.question, activity: parsed.activity };
-      }
-      return null;
-    } catch (error) {
-      this.logger.warn(`Failed to parse supervisor response: ${error instanceof Error ? error.message : error}`);
-      return null;
-    }
-  }
-
   private renderMessageContent(message: BaseMessage) {
     if (typeof message.content === 'string') {
       return message.content;
@@ -720,39 +619,6 @@ export class CompositionAgentService {
     } catch {
       return false;
     }
-  }
-
-  private renderDialogueTranscript(messages: BaseMessage[]) {
-    return messages
-      .map((message) => {
-        const type = message.getType();
-        let speaker = 'Agent';
-        if (type === 'human') {
-          speaker = 'User';
-        } else if (type === 'ai') {
-          speaker = 'Agent';
-        } else if (type === 'tool') {
-          speaker = 'Tool';
-        }
-        const content = this.renderMessageContent(message);
-        if (!content) {
-          return null;
-        }
-        return `${speaker}: ${content}`;
-      })
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  async resetConversation(userId: string, threadId: string): Promise<{ conversationId: string }> {
-    // Generate a new conversationId with a timestamp to ensure it's unique
-    const newConversationId = this.buildConversationId(userId, threadId, true);
-
-    // Note: We don't delete the old checkpoint as MemorySaver doesn't expose a delete method
-    // The old conversation will remain in memory but won't be accessed with the new ID
-    // For production with PostgresSaver, you could implement checkpoint deletion
-
-    return { conversationId: newConversationId };
   }
 
   private buildConversationId(userId: string, threadId?: string, reset = false) {

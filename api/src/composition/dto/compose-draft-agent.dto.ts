@@ -1,4 +1,4 @@
-import { Field, InputType, ObjectType, createUnionType } from '@nestjs/graphql';
+import { Field, InputType, ObjectType } from '@nestjs/graphql';
 
 @InputType()
 export class ComposeDraftAgentInput {
@@ -11,56 +11,6 @@ export class ComposeDraftAgentInput {
   @Field({ nullable: true })
   conversationId?: string;
 }
-
-@InputType()
-export class ResumeDraftCompositionInput {
-  @Field()
-  conversationId: string;
-
-  @Field()
-  userResponse: string;
-}
-
-@ObjectType()
-export class DraftResult {
-  @Field()
-  status: string;
-
-  @Field()
-  draftContent: string;
-
-  @Field()
-  conversationId: string;
-
-  @Field(() => [String])
-  activity: string[];
-}
-
-@ObjectType()
-export class ClarificationRequired {
-  @Field()
-  status: string;
-
-  @Field()
-  question: string;
-
-  @Field()
-  conversationId: string;
-
-  @Field(() => [String])
-  activity: string[];
-}
-
-export const ComposeDraftAgentResponse = createUnionType({
-  name: 'ComposeDraftAgentResponse',
-  types: () => [DraftResult, ClarificationRequired] as const,
-  resolveType: (value) => {
-    if ('question' in value) {
-      return ClarificationRequired;
-    }
-    return DraftResult;
-  },
-});
 
 @ObjectType()
 export class ConversationMessage {
@@ -85,11 +35,4 @@ export class ConversationState {
   @Field(() => [ConversationMessage], { nullable: true })
   messages?: ConversationMessage[];
 }
-
-@ObjectType()
-export class ResetConversationResult {
-  @Field()
-  conversationId: string;
-}
-
 

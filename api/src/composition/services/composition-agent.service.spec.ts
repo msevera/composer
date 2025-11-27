@@ -1,6 +1,5 @@
 import { ConfigService } from '@nestjs/config';
 import { AIMessage } from '@langchain/core/messages';
-import { CompositionAgentService } from './composition-agent.service';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
 import { UserService } from 'src/user/user.service';
@@ -72,32 +71,6 @@ describe('CompositionAgentService', () => {
     mockWorkerStream.mockImplementation(async function* streamMock() {
       // no streaming in tests by default
     });
-  });
-
-  it('returns draft when supervisor produces draft outcome', async () => {
-    const service = new CompositionAgentService(configService, gmailService, calendarService, userService);
-    const result = await service.compose({
-      userPrompt: 'Respond to Alex about the meeting.',
-      userId: 'user-1',
-      threadId: 'thread-1',
-    });
-
-    if (result.status !== 'DRAFT_READY') {
-      throw new Error('Expected draft to be ready');
-    }
-
-    expect(result.draftContent).toContain('Draft from worker model');
-    expect(result.activityLog).toEqual(expect.arrayContaining(['Loaded Gmail thread context.', 'Email draft generated.']));
-  });
-
-  it('fails when threadId is missing', async () => {
-    const service = new CompositionAgentService(configService, gmailService, calendarService, userService);
-    await expect(
-      service.compose({
-        userPrompt: 'Need info',
-        userId: 'user-1',
-      } as any),
-    ).rejects.toThrow('threadId is required to compose a draft.');
   });
 });
 
