@@ -13,7 +13,6 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { IndexingModule } from './indexing/indexing.module';
 import { CompositionModule } from './composition/composition.module';
 import { NotionModule } from './notion/notion.module';
-import { bearer, jwt } from "better-auth/plugins";
 
 @Module({
   imports: [
@@ -49,7 +48,6 @@ import { bearer, jwt } from "better-auth/plugins";
       useFactory: (connection: Connection, configService: ConfigService) => {
         return {
           auth: betterAuth({
-            plugins: [bearer(), jwt()],
             advanced: {
               defaultCookieAttributes: {
                 sameSite: "none",
@@ -63,11 +61,7 @@ import { bearer, jwt } from "better-auth/plugins";
               google: {
                 clientId: configService.get('GOOGLE_CLIENT_ID') || '',
                 clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
-                enabled: true,
-                // scope: [
-                //   'https://www.googleapis.com/auth/userinfo.email',
-                //   'https://www.googleapis.com/auth/userinfo.profile',
-                // ],
+                enabled: true,                
                 accessType: "offline",
                 prompt: "select_account consent",
               },

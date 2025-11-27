@@ -17,6 +17,7 @@ import {
   writer as graphWriter,
 } from '@langchain/langgraph';
 import { MemorySaver } from '@langchain/langgraph';
+import { UserService } from 'src/user/user.service';
 
 export type AgentDraftReady = {
   status: 'DRAFT_READY';
@@ -85,6 +86,8 @@ interface ComposeDraftContext {
   instructions?: string;
   dialogue?: BaseMessage[];
   userPrompt?: string | null;
+  userId?: string | null;
+  emailExamples?: string[];
 }
 
 interface ToolExecutionResult {
@@ -103,7 +106,7 @@ interface AgentToolDefinition {
 }
 
 const AgentState = Annotation.Root({
-  ...MessagesAnnotation.spec,
+  ...MessagesAnnotation.spec, 
   threadSummary: Annotation<string | null>(),
   recipientSummary: Annotation<string | null>(),
   searchSummary: Annotation<string | null>(),
@@ -131,6 +134,7 @@ const AgentState = Annotation.Root({
     default: () => false,
   }),
   userId: Annotation<string | null>(),
+  emailExamples: Annotation<string[] | null>(),
   threadId: Annotation<string | null>(),
   pendingUserPrompt: Annotation<string | null>(),
   latestUserPrompt: Annotation<string | null>({
@@ -154,6 +158,7 @@ export class CompositionAgentService {
     private readonly configService: ConfigService,
     private readonly gmailService: GmailService,
     private readonly calendarService: CalendarService,
+    private readonly userService: UserService,
   ) {
     this.researchModel = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 });
     this.draftCreatorModel = new ChatOpenAI({ model: 'gpt-4o', temperature: 0.2 });
@@ -452,6 +457,8 @@ export class CompositionAgentService {
       instructions,
       dialogue: state.dialogueHistory,
       userPrompt: state.latestUserPrompt,
+      userId: state.userId,
+      emailExamples: state.emailExamples ?? [],
     }, Boolean(state.streamingEnabled));
     const response = new AIMessage(
       JSON.stringify({
@@ -583,42 +590,47 @@ export class CompositionAgentService {
   }
 
   private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
-    const contextSections = [
-      context.userPrompt && `User response input:\n${context.userPrompt}`,
-      context.dialogue?.length && `Conversation so far:\n${this.renderDialogueTranscript(context.dialogue)}`,
-      context.threadSummary && `Thread context:\n${context.threadSummary}`,
-      context.recipientSummary && `Who to address:\n${context.recipientSummary}`,
-      context.searchSummary && `Historical references:\n${context.searchSummary}`,
-      context.calendarSummary && `Calendar availability:\n${context.calendarSummary}`,
-      context.vectorSummary && `Knowledge base context:\n${context.vectorSummary}`,
+    const user = await this.userService.findById(context.userId);
+    const contextSections = [      
+      context.threadSummary && `<email_thread_summary>${context.threadSummary}<email_thread_summary>`,
+      context.recipientSummary && `<persons_involved>:\n${context.recipientSummary}<persons_involved>`,
+      context.searchSummary && `<past_emails>:\n${context.searchSummary}<past_emails>`,
+      context.calendarSummary && `<calendar_availability>${context.calendarSummary}<calendar_availability>`,
+      context.vectorSummary && `<knowledge_base>:\n${context.vectorSummary}<knowledge_base>`,
     ]
       .filter(Boolean)
       .join('\n\n');
 
+      const examplesSection = context.emailExamples?.length ? `Here is examples of ${user?.name}'s voice:
+      ${context.emailExamples.map((example) => `<example>${example}</example>`).join('\n')}` : `Always write naturally and casually, like a regular person—not as a robot, template, or overly-formal writer.
+      Do not include generic statements; make the email specific to the user's request/context.
+      If in doubt, prioritize clarity, specificity, and a conversational tone.`;
+
     const promptMessages = [
       new SystemMessage(
-        `Write the body of a casual, natural-sounding email in response to the user's input and any provided context.
+        `#role
+        You are an AI assitant specialising in replying to incoming emails to ${user?.name}'s Gmail email inbox.
 
-Carefully review the user's request and the surrounding context to understand how they want to respond. Avoid vague or generic replies—address specific details and requests from the user or context whenever possible. Write informally and conversationally, as a normal person would, and avoid stilted or overly formal language.
+        #capabilities and limitations
+        You cannot send emails, you can create email drafts. Do not halucinate.
 
-Return only the body of the email.
+        #rules
+        1. Write the body of a casual, natural-sounding email in response to the ${user?.name}'s input and any provided context.
+        2. Carefully review the ${user?.name}'s input and the surrounding context to understand how they want to respond. 
+        3. Avoid vague or generic replies—address specific details and requests from the user or context whenever possible. 
+        4. Write informally and conversationally, as a normal person would, and avoid stilted or overly formal language.
 
-# Notes
-
-- Always write naturally and casually, like a regular person—not as a robot, template, or overly-formal writer.
-- Do not include generic statements; make the email specific to the user's request/context.
-
-If in doubt, prioritize clarity, specificity, and a conversational tone.`
+        #response
+        Reply in casual, modern, professional, concise writing style. Write email drafts in plaintext, not HTML format.
+        You should sound like ${user?.name}. ${examplesSection}
+        
+        
+        #context
+        Use the following context to reference it when writing the email draft.
+        ${contextSections}`
       ),
-      new HumanMessage(
-        [
-          // context.instructions && `Supervisor note: ${context.instructions}`,
-          contextSections || 'No additional context available.',
-          'Compose the final email now.',
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
-      ),
+      ...context.dialogue,
+      new HumanMessage(context.userPrompt)      
     ];
 
     if (streamingEnabled) {
