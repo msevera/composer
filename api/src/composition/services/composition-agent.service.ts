@@ -648,15 +648,5 @@ export class CompositionAgentService implements OnModuleDestroy {
       }),
     };
   }
-
-  private extractDatabaseName(uri: string): string | undefined {
-    try {
-      const parsed = new URL(uri);
-      const path = parsed.pathname?.replace(/^\//, '');
-      return path || undefined;
-    } catch {
-      return undefined;
-    }
-  }
 }
 
