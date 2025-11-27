@@ -12,6 +12,7 @@
   "dependencies": {
     "@apollo/client": "^3.14.0",
     "@better-fetch/fetch": "^1.1.18",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@plasmohq/messaging": "^0.7.2",
     "@radix-ui/react-checkbox": "^1.3.2",
     "@radix-ui/react-label": "^2.1.7",
@@ -53,7 +54,7 @@
           "manifest.json"
         ],
         "matches": [
-         "http://localhost/*"
+          "http://localhost/*"
         ]
       }
     ]

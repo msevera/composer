@@ -10,6 +10,7 @@ import { cn } from "./lib/utils";
 import { apolloClient } from "./lib/apollo-client";
 import { ApolloProvider, useQuery } from "@apollo/client";
 import { GET_CONVERSATION_STATE_QUERY } from "./lib/graphql/composition";
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 export const config: PlasmoCSConfig = {
   matches: ["https://mail.google.com/*"],
@@ -53,7 +54,6 @@ const App = () => {
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
   const [hasRequiredGmailScopes, setHasRequiredGmailScopes] = useState(false);
   const [isCheckingGmailScopes, setIsCheckingGmailScopes] = useState(false);
-  const previousThreadIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -79,12 +79,11 @@ const App = () => {
     return getConversationIdFromStorage(threadId);
   }, [threadId])
 
-
   const { data: conversationStateData } = useQuery(GET_CONVERSATION_STATE_QUERY, {
     variables: {
       conversationId
     },
-    skip: !threadId,
+    skip: !threadId || !conversationId,
   });
 
 
@@ -339,7 +338,7 @@ const App = () => {
   );
 
   const startStream = useCallback(
-    (inputText: string) => {
+    async (inputText: string) => {
       const threadId = getThreadIdFromDom();
       if (!threadId) {
         console.error("Unable to find the Gmail thread. Please refresh and try again.");
@@ -367,23 +366,25 @@ const App = () => {
         params.set("conversationId", conversationId);
       }
 
-      const source = new EventSource(`${COMPOSITION_STREAM_URL}?${params.toString()}`, {
-        withCredentials: true,
-      });
-      eventSourceRef.current = source;
-      source.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data) as ComposeStreamEvent;
-          handleStreamEvent(payload);
-        } catch (error) {
-          console.error(error);
+      const session = await authClient.getSession()     
+      fetchEventSource(`${COMPOSITION_STREAM_URL}?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${session?.data?.session?.token}`
+        },
+        onmessage(event) {
+          try {
+            const payload = JSON.parse(event.data) as ComposeStreamEvent;
+            handleStreamEvent(payload);
+          } catch (error) {
+            console.error(error);
+          }
+        },
+        onerror() {
+          closeEventSource();
+          setIsRunning(false);
+          console.error("Stream interrupted. Please try again.");
         }
-      };
-      source.onerror = () => {
-        closeEventSource();
-        setIsRunning(false);
-        console.error("Stream interrupted. Please try again.");
-      };
+      })
     },
     [handleStreamEvent, closeEventSource],
   );
@@ -654,7 +655,7 @@ const DraftBubble = ({ text, onCopy, indicator, copied }: DraftBubbleProps) => {
             className={cn(
               "text-[11px]",
               copied
-                ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                ? "bg-emerald-500/60 text-emerald-100 hover:bg-emerald-500/60 hover:text-emerald-100"
                 : "text-neutral-100 hover:text-white",
             )}
             onClick={onCopy}

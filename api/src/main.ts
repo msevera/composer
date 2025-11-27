@@ -27,23 +27,24 @@ async function bootstrap() {
     'http://localhost:5173',
     'http://localhost:4000',
     'https://mail.google.com',
-    'https://www.plasmo.com',
     ...extensionOrigins,
   ]);
 
   app.enableCors({
     origin: (origin, callback) => {
+      console.log('origin', origin);
       if (!origin) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.has(origin) || origin.startsWith('chrome-extension://')) {
+      if (allowedOrigins.has(origin)) {
         return callback(null, true);
       }
 
       return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
     },
-      credentials: true,
+    credentials: true,
+    exposedHeaders: ['set-auth-token'],
   });
 
   await app.listen(port);

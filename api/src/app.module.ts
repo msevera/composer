@@ -13,6 +13,7 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { IndexingModule } from './indexing/indexing.module';
 import { CompositionModule } from './composition/composition.module';
 import { NotionModule } from './notion/notion.module';
+import { bearer } from "better-auth/plugins";
 
 @Module({
   imports: [
@@ -29,7 +30,6 @@ import { NotionModule } from './notion/notion.module';
         connection: {
           host: configService.get('REDIS_HOST') || 'localhost',
           port: configService.get('REDIS_PORT') || 6379,
-          // password: configService.get('REDIS_PASSWORD'),
         },
       }),
       inject: [ConfigService],
@@ -48,20 +48,15 @@ import { NotionModule } from './notion/notion.module';
       useFactory: (connection: Connection, configService: ConfigService) => {
         return {
           auth: betterAuth({
-            advanced: {
-              defaultCookieAttributes: {
-                sameSite: "none",
-                secure: true
-              }
-            },
+            plugins: [bearer()],
             database: mongodbAdapter(connection.db as any, {
               usePlural: true,
-            }),            
+            }),
             socialProviders: {
               google: {
                 clientId: configService.get('GOOGLE_CLIENT_ID') || '',
                 clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
-                enabled: true,                
+                enabled: true,
                 accessType: "offline",
                 prompt: "select_account consent",
               },
@@ -84,7 +79,7 @@ import { NotionModule } from './notion/notion.module';
               'http://localhost:3000',
               'http://localhost:4000',
               'http://localhost:5173',
-              configService.get('CHROME_EXTENSION_ORIGINS') || '',
+              // configService.get('CHROME_EXTENSION_ORIGINS') || '',
             ],
           }),
         };

@@ -1,0 +1,25 @@
+import type { PlasmoMessaging } from "@plasmohq/messaging"
+
+const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
+  console.log('bg fetch', req.body)
+  const { url, method, headers, body, credentials } = req.body
+  const response = await fetch(url, {
+    method: method ?? 'POST',
+    headers: headers ? new Headers(headers) : undefined,
+    body,
+    credentials: credentials ?? 'include',
+  })
+
+  const responseHeaders: [string, string][] = Array.from(response.headers.entries())
+  const textBody = await response.text()
+
+  console.log('response.headers.entries()', responseHeaders);
+  res.send({
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+    body: textBody,
+  });
+}
+
+export default handler
