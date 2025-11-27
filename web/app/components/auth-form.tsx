@@ -13,7 +13,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [message, setMessage] = useState('');
-  const [sendProductUpdates, setSendProductUpdates] = useState(false);
+  const [sendProductUpdates, setSendProductUpdates] = useState(true);
 
   // Check if user is already authenticated and redirect
   useEffect(() => {

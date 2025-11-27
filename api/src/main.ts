@@ -32,7 +32,6 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      console.log('origin', origin);
       if (!origin) {
         return callback(null, true);
       }

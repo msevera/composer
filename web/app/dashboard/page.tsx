@@ -35,12 +35,6 @@ const GmailIcon = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const NotionIcon = (props: SVGProps<SVGSVGElement>) => (
-  <svg viewBox="0 0 100 100" aria-hidden="true" {...props}>
-    <path d="M6.017 4.313l55.333 -4.087c6.797 -0.583 8.543 -0.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277 -1.553 6.807 -6.99 7.193L24.467 99.967c-4.08 0.193 -6.023 -0.39 -8.16 -3.113L3.3 79.94c-2.333 -3.113 -3.3 -5.443 -3.3 -8.167V11.113c0 -3.497 1.553 -6.413 6.017 -6.8z" fill="#fff"/>
-    <path fill-rule="evenodd" clip-rule="evenodd" d="M61.35 0.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723 0.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257 -3.89c5.433 -0.387 6.99 -2.917 6.99 -7.193V20.64c0 -2.21 -0.873 -2.847 -3.443 -4.733L74.167 3.143c-4.273 -3.107 -6.02 -3.5 -12.817 -2.917zM25.92 19.523c-5.247 0.353 -6.437 0.433 -9.417 -1.99L8.927 11.507c-0.77 -0.78 -0.383 -1.753 1.557 -1.947l53.193 -3.887c4.467 -0.39 6.793 1.167 8.54 2.527l9.123 6.61c0.39 0.197 1.36 1.36 0.193 1.36l-54.933 3.307 -0.68 0.047zM19.803 88.3V30.367c0 -2.53 0.777 -3.697 3.103 -3.893L86 22.78c2.14 -0.193 3.107 1.167 3.107 3.693v57.547c0 2.53 -0.39 4.67 -3.883 4.863l-60.377 3.5c-3.493 0.193 -5.043 -0.97 -5.043 -4.083zm59.6 -54.827c0.387 1.75 0 3.5 -1.75 3.7l-2.91 0.577v42.773c-2.527 1.36 -4.853 2.137 -6.797 2.137 -3.107 0 -3.883 -0.973 -6.21 -3.887l-19.03 -29.94v28.967l6.02 1.363s0 3.5 -4.857 3.5l-13.39 0.777c-0.39 -0.78 0 -2.723 1.357 -3.11l3.497 -0.97v-38.3L30.48 40.667c-0.39 -1.75 0.58 -4.277 3.3 -4.473l14.367 -0.967 19.8 30.327v-26.83l-5.047 -0.58c-0.39 -2.143 1.163 -3.7 3.103 -3.89l13.4 -0.78z" fill="#000"/>
-  </svg>
-);
 
 type NavItem = {
   label: string;
@@ -54,10 +48,7 @@ export default function DashboardPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
-  const [isNotionConnected, setIsNotionConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
-  const [isCheckingNotion, setIsCheckingNotion] = useState(false);
-  const [isKnowledgeStepSkipped, setIsKnowledgeStepSkipped] = useState(false);
   const [isExtensionStepCompleted, setIsExtensionStepCompleted] = useState(false);
   const [isExtensionInstalled, setIsExtensionInstalled] = useState(false);
   const [isCheckingExtension, setIsCheckingExtension] = useState(true);
@@ -97,13 +88,11 @@ export default function DashboardPage() {
   const refreshConnections = useCallback(async () => {
     if (!isAuthenticated) {
       setIsGmailConnected(false);
-      setIsNotionConnected(false);
       return;
     }
 
     try {
       setIsCheckingGmail(true);
-      setIsCheckingNotion(true);
       const accounts = await authClient.listAccounts();
       const allAccounts = accounts.data ?? [];
       const gmailAccount = allAccounts.find((account: any) => account.providerId === 'google');
@@ -111,18 +100,11 @@ export default function DashboardPage() {
         gmailAccount?.scopes?.includes?.(scope),
       );
       setIsGmailConnected(Boolean(gmailAccount && gmailHasScopes));
-      setIsNotionConnected(Boolean(allAccounts.find((account: any) => account.providerId === 'notion')));
     } finally {
       setIsCheckingGmail(false);
-      setIsCheckingNotion(false);
     }
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (isNotionConnected) {
-      setIsKnowledgeStepSkipped(false);
-    }
-  }, [isNotionConnected]);
 
   useEffect(() => {
     if (isExtensionInstalled) {
@@ -242,22 +224,6 @@ export default function DashboardPage() {
     await refreshConnections();
   };
 
-  const handleConnectNotion = async () => {
-    setMessage('');
-    try {
-      await authClient.linkSocial({
-        provider: 'notion',
-        callbackURL: typeof window !== 'undefined' ? `${window.location.origin}/dashboard` : undefined,
-      });
-    } catch (error: any) {
-      setMessage(error?.message ?? 'Failed to connect Notion');
-    }
-  };
-
-  const handleDisconnectNotion = async () => {
-    await authClient.unlinkAccount({ providerId: 'notion' });
-    await refreshConnections();
-  };
 
   const handleCompleteOnboarding = async () => {
     if (!user) return;
@@ -298,48 +264,6 @@ export default function DashboardPage() {
               <GmailIcon className="h-4 w-4" />
               <span>Connect Gmail</span>
             </button>
-          </div>
-        ),
-      },
-      {
-        id: 'knowledge',
-        title: 'Connect your knowledge bases',
-        description:
-          'Our agent might use connected knowledge bases to draft the best responses.',
-        completed: isNotionConnected || isKnowledgeStepSkipped,
-        action: (
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={isNotionConnected ? handleDisconnectNotion : handleConnectNotion}
-              disabled={isCheckingNotion}
-              className={`inline-flex min-w-[180px] items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition ${isNotionConnected
-                ? 'border border-emerald-200 bg-emerald-50 text-emerald-600'
-                : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50'
-                }`}
-            >
-              <NotionIcon className="h-4 w-4" />
-              <span>
-                {isCheckingNotion
-                  ? 'Checking…'
-                  : isNotionConnected
-                    ? 'Disconnect Notion'
-                    : 'Connect Notion'}
-              </span>
-            </button>
-            {!isNotionConnected && !isKnowledgeStepSkipped && (
-              <button
-                type="button"
-                onClick={() => setIsKnowledgeStepSkipped(true)}
-                className="text-sm font-semibold text-slate-400 transition hover:text-slate-600"
-              >
-                Skip for now
-              </button>
-            )}
-            {isKnowledgeStepSkipped && !isNotionConnected && (
-              <span className="text-xs font-medium text-slate-400">
-                Skipped — you can connect later.
-              </span>
-            )}
           </div>
         ),
       },
@@ -398,15 +322,10 @@ export default function DashboardPage() {
   }, [
     handleCompleteOnboarding,
     handleConnectGmail,
-    handleConnectNotion,
-    handleDisconnectNotion,
     isCheckingExtension,
-    isCheckingNotion,
     isExtensionInstalled,
     isExtensionStepCompleted,
     isGmailConnected,
-    isKnowledgeStepSkipped,
-    isNotionConnected,
     isUpdatingOnboarding,
     user?.onboardingCompleted,
   ]);
@@ -522,7 +441,7 @@ export default function DashboardPage() {
                     Manage your connected services
                   </p>
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2">
                   <IntegrationStatusCard
                     name="Gmail"
                     description="Create responses with your Gmail context."
@@ -534,17 +453,6 @@ export default function DashboardPage() {
                     disconnectLabel="Disconnect"
                     actionLabel="Connect Gmail"
                     disableDisconnect
-                  />
-                  <IntegrationStatusCard
-                    name="Notion"
-                    description="Ground replies with documents and notes."
-                    isConnected={isNotionConnected}
-                    isChecking={isCheckingNotion}
-                    onConnect={handleConnectNotion}
-                    onDisconnect={handleDisconnectNotion}
-                    connectLabel="Connect Notion"
-                    disconnectLabel="Disconnect"
-                    actionLabel="Connect Notion"
                   />
                   <IntegrationStatusCard
                     name="Chrome extension"

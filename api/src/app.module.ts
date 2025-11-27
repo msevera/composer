@@ -12,7 +12,6 @@ import { Connection } from 'mongoose';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { IndexingModule } from './indexing/indexing.module';
 import { CompositionModule } from './composition/composition.module';
-import { NotionModule } from './notion/notion.module';
 import { bearer } from "better-auth/plugins";
 
 @Module({
@@ -60,10 +59,6 @@ import { bearer } from "better-auth/plugins";
                 accessType: "offline",
                 prompt: "select_account consent",
               },
-              notion: {
-                clientId: configService.get('NOTION_CLIENT_ID') || '',
-                clientSecret: configService.get('NOTION_CLIENT_SECRET') || ''
-              },
             },
             account: {
               accountLinking: {
@@ -87,7 +82,6 @@ import { bearer } from "better-auth/plugins";
       inject: [getConnectionToken(), ConfigService],
     }),
     GmailModule,
-    NotionModule,
   ]
 })
 export class AppModule { }
