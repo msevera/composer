@@ -170,7 +170,7 @@ const humanInputTool = new DynamicStructuredTool({
   - Returns draft content or signals need for user input
 
 **Checkpoint Management**:
-- Use `MemorySaver` (development) or `PostgresSaver` (production) for persistence
+- Use the MongoDB-backed LangGraph checkpointer (`MongoDBSaver`) for persistence
 - Generate checkpoint `thread_id` from composition context (e.g., `composition-${userId}-${threadId}`)
 - Enable resume functionality for interrupted conversations
 

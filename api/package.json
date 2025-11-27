@@ -20,6 +20,7 @@
     "@as-integrations/express5": "^1.1.2",
     "@langchain/core": "^1.0.6",
     "@langchain/langgraph": "^1.0.2",
+    "@langchain/langgraph-checkpoint-mongodb": "^1.0.0",
     "@langchain/openai": "^1.1.2",
     "@nestjs/apollo": "^13.2.0",
     "@nestjs/bullmq": "^11.0.4",

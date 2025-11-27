@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
@@ -7,17 +7,10 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
-import {
-  Annotation,
-  CompiledStateGraph,
-  END,
-  MessagesAnnotation,
-  START,
-  StateGraph,
-  writer as graphWriter,
-} from '@langchain/langgraph';
-import { MemorySaver } from '@langchain/langgraph';
+import { Annotation, CompiledStateGraph, END, MessagesAnnotation, START, StateGraph, writer as graphWriter } from '@langchain/langgraph';
+import { MongoDBSaver } from '@langchain/langgraph-checkpoint-mongodb';
 import { UserService } from 'src/user/user.service';
+import { MongoClient } from 'mongodb';
 
 
 export interface ComposeAgentOptions {
@@ -116,13 +109,15 @@ const AgentState = Annotation.Root({
 type AgentStateType = typeof AgentState.State;
 
 @Injectable()
-export class CompositionAgentService {
+export class CompositionAgentService implements OnModuleDestroy {
   private readonly logger = new Logger(CompositionAgentService.name);
   private readonly researchModel: ChatOpenAI;
   private readonly draftCreatorModel: ChatOpenAI;
   private readonly reasoningModel: { invoke: (messages: BaseMessage[], config?: unknown) => Promise<AIMessage> };
   private readonly toolHandlers: Record<string, ToolHandler>;
   private readonly agentGraph: CompiledStateGraph<any, any, any, any, any, any>;
+  private readonly mongoClient: MongoClient;
+  private readonly checkpointer: MongoDBSaver;
 
   constructor(
     private readonly configService: ConfigService,
@@ -133,6 +128,9 @@ export class CompositionAgentService {
     this.researchModel = new ChatOpenAI({ model: 'gpt-4.1-mini' });
     this.draftCreatorModel = new ChatOpenAI({ model: 'gpt-4.1', temperature: 0 });
 
+    const { client, checkpointer } = this.buildMongoCheckpointer();
+    this.mongoClient = client;
+    this.checkpointer = checkpointer;
     const toolDefinitions = this.buildAgentTools();
     this.toolHandlers = Object.fromEntries(toolDefinitions.map((definition) => [definition.metadata.name, definition.handler]));
     this.reasoningModel = this.researchModel.bindTools(toolDefinitions.map((definition) => definition.metadata));
@@ -149,8 +147,12 @@ export class CompositionAgentService {
       .addEdge('compose_draft', END);
 
     this.agentGraph = builder.compile({
-      checkpointer: new MemorySaver(),
+      checkpointer: this.checkpointer,
     });
+  }
+
+  async onModuleDestroy() {
+    await this.mongoClient?.close();
   }
 
   async composeStream(
@@ -624,6 +626,37 @@ export class CompositionAgentService {
   private buildConversationId(userId: string, threadId?: string, reset = false) {
     const baseId = `composition-${userId}-${threadId}-${randomUUID()}`;
     return baseId;
+  }
+
+  private buildMongoCheckpointer(): { client: MongoClient; checkpointer: MongoDBSaver } {
+    const uri =
+      this.configService.get<string>('LANGGRAPH_MONGODB_URI');
+    const dbName =
+      this.configService.get<string>('LANGGRAPH_MONGODB_DB');
+    const client = new MongoClient(uri);
+    void client
+      .connect()
+      .then(() => this.logger.debug('LangGraph checkpointer connected to MongoDB.'))
+      .catch((error) =>
+        this.logger.error('LangGraph checkpointer failed to connect to MongoDB.', error instanceof Error ? error.stack : String(error)),
+      );
+    return {
+      client,
+      checkpointer: new MongoDBSaver({
+        client,
+        dbName,
+      }),
+    };
+  }
+
+  private extractDatabaseName(uri: string): string | undefined {
+    try {
+      const parsed = new URL(uri);
+      const path = parsed.pathname?.replace(/^\//, '');
+      return path || undefined;
+    } catch {
+      return undefined;
+    }
   }
 }
 
