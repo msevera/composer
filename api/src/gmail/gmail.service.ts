@@ -36,7 +36,7 @@ export class GmailService {
         userId: userId.toString(),
         provider: 'google',
       });
-    }    
+    }
 
     return account;
   }
@@ -285,7 +285,7 @@ export class GmailService {
 
     for (let i = 0; i < messageIds.length; i += concurrency) {
       const batch = messageIds.slice(i, i + concurrency);
-      
+
       const batchPromises = batch.map(async (messageId) => {
         try {
           const { data } = await gmail.users.messages.get({
@@ -301,7 +301,7 @@ export class GmailService {
       });
 
       const batchResults = await Promise.all(batchPromises);
-      
+
       // Store results in the correct positions
       batchResults.forEach((result, batchIndex) => {
         results[i + batchIndex] = result;
@@ -323,7 +323,7 @@ export class GmailService {
         userId: 'me',
         id: threadId,
         format: 'full',
-      });      
+      });
       return data;
     } catch (error) {
       const message = this.formatGoogleError(error);
@@ -480,7 +480,14 @@ export class GmailService {
         const subject = this.extractHeader(message, 'subject') || 'No subject';
         const body = this.extractMessageBody(message);
         const preview = this.sanitizePreview(body || message?.snippet || '');
-        return `Message #${messages.length - latest.length + index + 1}\nFrom: ${from}\nSubject: ${subject}\nBody:\n${preview}`;
+        const emailIndex = messages.length - latest.length + index + 1;
+        return [
+          `<email_${emailIndex}>`,
+          `From: ${from}`,
+          `Subject: ${subject}`,
+          `Message: ${preview}`,
+          `</email_${emailIndex}>`
+        ].join('\n');
       })
       .join('\n');
   }

@@ -3,6 +3,7 @@ import { AIMessage } from '@langchain/core/messages';
 import { CompositionAgentService } from './composition-agent.service';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
+import { UserService } from 'src/user/user.service';
 
 const mockBoundInvoke = jest.fn();
 const mockWorkerInvoke = jest.fn();
@@ -41,7 +42,9 @@ describe('CompositionAgentService', () => {
   const calendarService = {
     getCalendarEvents: jest.fn(),
   } as unknown as CalendarService;
-
+  const userService = {
+    findById: jest.fn(),
+  } as unknown as UserService;
   beforeEach(() => {
     jest.clearAllMocks();
     chatConstructorCount = 0;
@@ -72,7 +75,7 @@ describe('CompositionAgentService', () => {
   });
 
   it('returns draft when supervisor produces draft outcome', async () => {
-    const service = new CompositionAgentService(configService, gmailService, calendarService);
+    const service = new CompositionAgentService(configService, gmailService, calendarService, userService);
     const result = await service.compose({
       userPrompt: 'Respond to Alex about the meeting.',
       userId: 'user-1',
@@ -88,7 +91,7 @@ describe('CompositionAgentService', () => {
   });
 
   it('fails when threadId is missing', async () => {
-    const service = new CompositionAgentService(configService, gmailService, calendarService);
+    const service = new CompositionAgentService(configService, gmailService, calendarService, userService);
     await expect(
       service.compose({
         userPrompt: 'Need info',

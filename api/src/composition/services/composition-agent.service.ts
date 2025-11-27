@@ -106,7 +106,7 @@ interface AgentToolDefinition {
 }
 
 const AgentState = Annotation.Root({
-  ...MessagesAnnotation.spec, 
+  ...MessagesAnnotation.spec,
   threadSummary: Annotation<string | null>(),
   recipientSummary: Annotation<string | null>(),
   searchSummary: Annotation<string | null>(),
@@ -293,16 +293,16 @@ export class CompositionAgentService {
 
   private buildAgentTools(): AgentToolDefinition[] {
     return [
-      {
-        metadata: tool(async () => '', {
-          name: 'search_related_emails',
-          description: 'Search the mailbox for related historical context.',
-          schema: z.object({
-            query: z.string().optional(),
-          }),
-        }),
-        handler: this.handleSearchTool.bind(this),
-      },
+      // {
+      //   metadata: tool(async () => '', {
+      //     name: 'search_related_emails',
+      //     description: 'Search the mailbox for related historical context.',
+      //     schema: z.object({
+      //       query: z.string().optional(),
+      //     }),
+      //   }),
+      //   handler: this.handleSearchTool.bind(this),
+      // },
       {
         metadata: tool(async () => '', {
           name: 'calendar_lookup',
@@ -591,46 +591,42 @@ export class CompositionAgentService {
 
   private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
     const user = await this.userService.findById(context.userId);
-    const contextSections = [      
+    const contextSections = [
       context.threadSummary && `<email_thread_summary>${context.threadSummary}<email_thread_summary>`,
-      context.recipientSummary && `<persons_involved>:\n${context.recipientSummary}<persons_involved>`,
+      context.recipientSummary && `<persons_involved>\n${context.recipientSummary}<persons_involved>`,
       context.searchSummary && `<past_emails>:\n${context.searchSummary}<past_emails>`,
       context.calendarSummary && `<calendar_availability>${context.calendarSummary}<calendar_availability>`,
-      context.vectorSummary && `<knowledge_base>:\n${context.vectorSummary}<knowledge_base>`,
+      context.vectorSummary && `<knowledge_base>\n${context.vectorSummary}<knowledge_base>`,
     ]
       .filter(Boolean)
       .join('\n\n');
 
-      const examplesSection = context.emailExamples?.length ? `Here is examples of ${user?.name}'s voice:
-      ${context.emailExamples.map((example) => `<example>${example}</example>`).join('\n')}` : `Always write naturally and casually, like a regular person—not as a robot, template, or overly-formal writer.
-      Do not include generic statements; make the email specific to the user's request/context.
-      If in doubt, prioritize clarity, specificity, and a conversational tone.`;
+    const examplesSection = context.emailExamples?.length ?
+      `Here is examples of ${user?.name}'s voice:
+      ${context.emailExamples.map((example) => `<example>${example}</example>`).join('\n')}` :
+      [`Always write naturally and casually, like a regular person—not as a robot, template, or overly-formal writer.`,
+      `Do not include generic statements; make the email specific to the user's request/context. If in doubt, prioritize clarity, specificity, and a conversational tone.`].join('\n');
 
     const promptMessages = [
-      new SystemMessage(
-        `#role
-        You are an AI assitant specialising in replying to incoming emails to ${user?.name}'s Gmail email inbox.
-
-        #capabilities and limitations
-        You cannot send emails, you can create email drafts. Do not halucinate.
-
-        #rules
-        1. Write the body of a casual, natural-sounding email in response to the ${user?.name}'s input and any provided context.
-        2. Carefully review the ${user?.name}'s input and the surrounding context to understand how they want to respond. 
-        3. Avoid vague or generic replies—address specific details and requests from the user or context whenever possible. 
-        4. Write informally and conversationally, as a normal person would, and avoid stilted or overly formal language.
-
-        #response
-        Reply in casual, modern, professional, concise writing style. Write email drafts in plaintext, not HTML format.
-        You should sound like ${user?.name}. ${examplesSection}
-        
-        
-        #context
-        Use the following context to reference it when writing the email draft.
-        ${contextSections}`
-      ),
+      new SystemMessage([
+        '#role',
+        `You are an AI assitant specialising in replying to incoming emails to ${user?.name}'s Gmail email inbox.`,
+        `\n#capabilities and limitations`,
+        `You cannot send emails, you can create email drafts. Do not halucinate.`,
+        `\n#rules`,
+        `1. Write the body of a casual, natural-sounding email in response to the ${user?.name}'s input and any provided context.`,
+        `2. Carefully review the ${user?.name}'s input and the surrounding context to understand how they want to respond.`,
+        `3. Avoid vague or generic replies—address specific details and requests from the user or context whenever possible.`,
+        `4. Write informally and conversationally, as a normal person would, and avoid stilted or overly formal language.`,
+        `\n#response`,
+        `Reply in casual, modern, professional, concise writing style. Write email drafts in plaintext, not HTML format.`,
+        `You should sound like ${user?.name}. ${examplesSection}`,
+        `\n#context`,
+        `Use the following context to reference it when writing the email draft.`,
+        `${contextSections}`
+      ].join('\n')),
       ...context.dialogue,
-      new HumanMessage(context.userPrompt)      
+      new HumanMessage(context.userPrompt)
     ];
 
     if (streamingEnabled) {
@@ -751,11 +747,11 @@ export class CompositionAgentService {
   async resetConversation(userId: string, threadId: string): Promise<{ conversationId: string }> {
     // Generate a new conversationId with a timestamp to ensure it's unique
     const newConversationId = this.buildConversationId(userId, threadId, true);
-    
+
     // Note: We don't delete the old checkpoint as MemorySaver doesn't expose a delete method
     // The old conversation will remain in memory but won't be accessed with the new ID
     // For production with PostgresSaver, you could implement checkpoint deletion
-    
+
     return { conversationId: newConversationId };
   }
 

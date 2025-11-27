@@ -642,7 +642,7 @@ const PlasmoOverlay = () => {
                 messageEntry.kind === "user" ? (
                   <div
                     key={messageEntry.id}
-                    className="self-end rounded-2xl px-3 py-2 whitespace-pre-wrap bg-neutral-700 text-white text-xs"
+                    className="self-end rounded-2xl border border-white/10 p-3 whitespace-pre-wrap bg-neutral-700 text-neutral-100 text-xs leading-5"
                   >
                     {messageEntry.text}
                   </div>
