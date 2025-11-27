@@ -8,6 +8,7 @@ import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
 import { apolloClient } from "./lib/apollo-client";
+import { ApolloProvider, useQuery } from "@apollo/client";
 import { GET_CONVERSATION_STATE_QUERY } from "./lib/graphql/composition";
 
 export const config: PlasmoCSConfig = {
@@ -31,7 +32,7 @@ const requiredGmailScopes = [
   "https://www.googleapis.com/auth/calendar.readonly",
 ];
 
-const PlasmoOverlay = () => {
+const App = () => {
   const { data: session, isPending } = authClient.useSession();
   const [message, setMessage] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -40,6 +41,7 @@ const PlasmoOverlay = () => {
   >([]);
   const [draftIndicator, setDraftIndicator] = useState<string | null>(null);
   const isThreadView = useIsGmailThreadView();
+  const gmailThreadId = useGmailThreadId();
   const [isMinimized, setIsMinimized] = useState(() => getSavedMinimizedState());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -64,95 +66,44 @@ const PlasmoOverlay = () => {
     element.style.height = `${nextHeight}px`;
   }, [message]);
 
-  useEffect(() => {    
-    if (isRunning) {
+
+  const threadId = useMemo(() => {
+    return gmailThreadId;
+  }, [gmailThreadId]);
+
+  const conversationId = useMemo(() => {
+    if (!threadId) {
+      return null;
+    }
+
+    return getConversationIdFromStorage(threadId);
+  }, [threadId])
+
+
+  const { data: conversationStateData } = useQuery(GET_CONVERSATION_STATE_QUERY, {
+    variables: {
+      conversationId
+    },
+    skip: !threadId,
+  });
+
+
+  useEffect(() => {
+    if (!conversationId) {
+      setAgentMessages([]);
       return;
     }
 
-    const updateThreadContext = async () => {
-      console.log("updateThreadContext");
-      const threadId = getThreadIdFromDom();
-      const previousThreadId = previousThreadIdRef.current;
-      
-      // If thread changed, clear messages
-      if (previousThreadId !== threadId) {
-        setAgentMessages([]);
-        previousThreadIdRef.current = threadId;
-      }
-      
-      if (!threadId) {
-        setAgentMessages([]);
-        return;
-      }
-
-      // Get conversationId from storage (if exists)
-      const conversationId = getConversationIdFromStorage(threadId);
-       
-      // Only fetch conversation state if we have a conversationId
-      // If no conversationId exists, the conversation should be empty (first visit)
-      if (!conversationId) {
-        // No conversationId - this is a first visit, keep conversation empty
-        setAgentMessages([]);
-        return;
-      }
-
-      // Fetch conversation state from API using the conversationId
-      try {
-        const { data } = await apolloClient.query({
-          query: GET_CONVERSATION_STATE_QUERY,
-          variables: { conversationId },
-          fetchPolicy: "network-only", // Always fetch fresh data
-        });
-
-        if (data?.getConversationState?.exists && data.getConversationState.messages) {
-          // Load conversation history
-          const messages = data.getConversationState.messages.map((msg: any) => ({
-            id: generateMessageId(),
-            text: msg.content,
-            kind: msg.kind as "user" | "draft",
-          }));
-          setAgentMessages(messages);
-        } else {
-          // No conversation exists - remove from storage and clear messages
-          saveConversationIdToStorage(threadId, null);
-          setAgentMessages([]);
-        }
-      } catch (error) {
-        console.error("Failed to fetch conversation state:", error);
-        // On error, remove from storage and clear messages
-        saveConversationIdToStorage(threadId, null);
-        setAgentMessages([]);
-      }
-    };
-
-    void updateThreadContext();
-
-    if (!isThreadView) {
-      return;
+    if (conversationStateData?.getConversationState?.exists && conversationStateData.getConversationState.messages) {
+      // Load conversation history
+      const messages = conversationStateData.getConversationState.messages.map((msg: any) => ({
+        id: generateMessageId(),
+        text: msg.content,
+        kind: msg.kind as "user" | "draft",
+      }));
+      setAgentMessages(messages);
     }
-
-    const observer = new MutationObserver(() => {
-      void updateThreadContext();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    
-    const handleHashChange = () => {
-      void updateThreadContext();
-    };
-    const handlePopState = () => {
-      void updateThreadContext();
-    };
-    
-    window.addEventListener("hashchange", handleHashChange);
-    window.addEventListener("popstate", handlePopState);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("hashchange", handleHashChange);
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [isThreadView, isRunning]);
-
+  }, [conversationStateData, conversationId])
 
   useEffect(() => {
     let isActive = true;
@@ -206,17 +157,18 @@ const PlasmoOverlay = () => {
     () =>
       Boolean(
         !isPending &&
-          !isCheckingGmailScopes &&
-          session &&
-          hasRequiredGmailScopes &&
-          isThreadView &&
-          getThreadIdFromDom(),
+        !isCheckingGmailScopes &&
+        session &&
+        hasRequiredGmailScopes &&
+        isThreadView &&
+        threadId,
       ),
     [
       hasRequiredGmailScopes,
       isCheckingGmailScopes,
       isPending,
       isThreadView,
+      threadId,
       session,
     ],
   );
@@ -393,9 +345,9 @@ const PlasmoOverlay = () => {
         console.error("Unable to find the Gmail thread. Please refresh and try again.");
         return;
       }
-      
+
       const conversationId = getConversationIdFromStorage(threadId);
-      
+
       setDraftIndicator(null);
       if (inputText.trim()) {
         setAgentMessages((prev) => [
@@ -485,7 +437,7 @@ const PlasmoOverlay = () => {
     }
 
     const threadId = getThreadIdFromDom();
-    
+
     // Remove conversationId from storage
     if (threadId) {
       saveConversationIdToStorage(threadId, null);
@@ -729,7 +681,16 @@ const DraftBubble = ({ text, onCopy, indicator, copied }: DraftBubbleProps) => {
   );
 };
 
-export default PlasmoOverlay;
+
+const Root = () => {
+  return (
+    <ApolloProvider client={apolloClient}>
+      <App />
+    </ApolloProvider>
+  );
+};
+
+export default Root;
 
 function useIsGmailThreadView() {
   const [isThreadView, setIsThreadView] = useState(() => checkThreadView());
@@ -753,6 +714,31 @@ function useIsGmailThreadView() {
   }, []);
 
   return isThreadView;
+}
+
+
+function useGmailThreadId() {
+  const [threadId, setThreadId] = useState(() => getThreadIdFromDom());
+
+  useEffect(() => {
+    const updateThreadId = () => setThreadId(getThreadIdFromDom());
+
+    window.addEventListener("hashchange", updateThreadId);
+    window.addEventListener("popstate", updateThreadId);
+
+    const observer = new MutationObserver(() => {
+      updateThreadId();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      window.removeEventListener("hashchange", updateThreadId);
+      window.removeEventListener("popstate", updateThreadId);
+      observer.disconnect();
+    };
+  }, []);
+
+  return threadId;
 }
 
 function checkThreadView() {
@@ -803,13 +789,6 @@ function getThreadIdFromDom() {
   const legacyContainer = document.querySelector<HTMLElement>("[data-legacy-thread-id]");
   if (legacyContainer?.dataset.legacyThreadId) {
     return legacyContainer.dataset.legacyThreadId;
-  }
-
-  if (typeof window !== "undefined") {
-    const hashMatch = window.location.hash.match(/\/([\w-]+)$/);
-    if (hashMatch) {
-      return hashMatch[1];
-    }
   }
 
   return undefined;
