@@ -21,12 +21,14 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+  const webOrigins = (configService.get<string>('WEB_ORIGINS') || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   const allowedOrigins = new Set<string>([
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:5173',
-    'http://localhost:4000',
     'https://mail.google.com',
+    ...webOrigins,
     ...extensionOrigins,
   ]);
 

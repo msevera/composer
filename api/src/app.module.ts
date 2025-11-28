@@ -41,6 +41,11 @@ import { AppController } from './app.controller';
     CompositionModule,
     AuthModule.forRootAsync({
       useFactory: (connection: Connection, configService: ConfigService) => {
+        const webOrigins = (configService.get<string>('WEB_ORIGINS') || '')
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter(Boolean);
+
         const auth = betterAuth({
           plugins: [bearer(), listAccountsPlugin()],
           database: mongodbAdapter(connection.db as any, {
@@ -96,27 +101,24 @@ import { AppController } from './app.controller';
           user: {
             additionalFields: {
               maxDraftsAllowed: {
-                type: "number",               
+                type: "number",
               },
               draftsUsed: {
-                type: "number",                
+                type: "number",
               },
               onboardingCompleted: {
-                type: "boolean",                
+                type: "boolean",
               },
               sendProductUpdates: {
-                type: "boolean",                
+                type: "boolean",
               },
             }
           },
-          secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
-          baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
+          secret: configService.get('BETTER_AUTH_SECRET'),
+          baseURL: configService.get('BETTER_AUTH_URL'),
           basePath: '/api/auth',
           trustedOrigins: [
-            'http://localhost:3000',
-            'http://localhost:4000',
-            'http://localhost:5173',
-            // configService.get('CHROME_EXTENSION_ORIGINS') || '',
+            ...webOrigins
           ],
         });
 
