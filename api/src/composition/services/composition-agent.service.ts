@@ -18,6 +18,7 @@ export interface ComposeAgentOptions {
   userId: string;
   threadId?: string;
   conversationId?: string;
+  accountId?: string;
 }
 
 export interface ResumeAgentOptions {
@@ -104,6 +105,7 @@ const AgentState = Annotation.Root({
     reducer: (left: string | null, right: string | null) => (right === undefined ? left ?? null : right),
     default: () => null,
   }),
+  accountId: Annotation<string | null>(),
 });
 
 type AgentStateType = typeof AgentState.State;
@@ -183,6 +185,7 @@ export class CompositionAgentService implements OnModuleDestroy {
         pendingUserPrompt: options.userPrompt,
         latestUserPrompt: options.userPrompt,
         streamingEnabled: Boolean(execConfig.writer),
+        accountId: options.accountId || null,
       },
       {
         configurable: {
@@ -282,7 +285,7 @@ export class CompositionAgentService implements OnModuleDestroy {
 
     try {
       this.emitEvent({ type: 'activity', message: 'Loading Gmail thread…' });
-      const thread = await this.gmailService.getThread(state.userId, state.threadId);
+      const thread = await this.gmailService.getThread(state.userId, state.threadId, state.accountId || undefined);
       const summary = this.gmailService.summarizeThread(thread);
       const recipientSummary = this.gmailService.buildRecipientSummary(thread);
       this.emitEvent({ type: 'activity', message: 'Loaded Gmail thread context.' });
@@ -455,7 +458,8 @@ export class CompositionAgentService implements OnModuleDestroy {
         activity: 'Historical search skipped (no query).',
       };
     }
-    const searchResults = await this.gmailService.listMessages(state.userId, undefined, 5, query);
+    const accountId = state.accountId || undefined;
+    const searchResults = await this.gmailService.listMessages(state.userId, undefined, 5, query, accountId);
     const ids = (searchResults.messages ?? []).map((message) => message.id).filter(Boolean) as string[];
     if (!ids.length) {
       return {
@@ -463,7 +467,7 @@ export class CompositionAgentService implements OnModuleDestroy {
         activity: 'No matching historical emails found.',
       };
     }
-    const messages = await this.gmailService.getMessagesBulk(state.userId, ids, 'full');
+    const messages = await this.gmailService.getMessagesBulk(state.userId, ids, 'full', accountId);
     const summary = this.gmailService.summarizeMessages(messages);
     return {
       message: summary,
@@ -483,11 +487,12 @@ export class CompositionAgentService implements OnModuleDestroy {
     const now = new Date();
     const timeMin = now.toISOString();
     const timeMax = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+    const accountId = state.accountId || undefined;
     const events = await this.calendarService.getCalendarEvents(state.userId, {
       timeMin,
       timeMax,
       maxResults: 10,
-    });
+    }, accountId);
     const summary = this.summarizeCalendar(events);
     return {
       message: summary,

@@ -102,11 +102,16 @@ export default function DashboardPage() {
         requiredGmailScopes.every((scope) => account?.scopes?.includes?.(scope))
       );
       
-      setGmailAccounts(validGmailAccounts.map((account: any) => ({
-        accountId: account.accountId || account.id || account._id,
-        email: account.email || account.accountEmail,
-        scopes: account.scopes,
-      })));
+      setGmailAccounts(validGmailAccounts.map((account: any) => {
+        console.log('account', JSON.stringify(account, null, 2));
+        // Try multiple possible fields for email
+        const email = account.email || account.accountEmail || account.profile?.email || account.user?.email || null;
+        return {
+          accountId: account.accountId || account.id || account._id,
+          email: email,
+          scopes: account.scopes,
+        };
+      }));
       setIsGmailConnected(validGmailAccounts.length > 0);
     } finally {
       setIsCheckingGmail(false);
@@ -251,6 +256,7 @@ export default function DashboardPage() {
       await refreshConnections();
       setMessage('Gmail account disconnected successfully');
     } catch (error: any) {
+      console.error('Failed to disconnect Gmail account', error);
       setMessage(error?.message ?? 'Failed to disconnect Gmail account');
     }
   };
@@ -487,7 +493,7 @@ export default function DashboardPage() {
                         className={`${buttonBase} bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed`}
                       >
                         <GmailIcon className="h-4 w-4 mr-2" />
-                        Connect Gmail Account
+                        Connect Account
                       </button>
                     </div>
                     {isCheckingGmail ? (
@@ -531,7 +537,7 @@ export default function DashboardPage() {
                           className={`${buttonBase} bg-slate-900 text-white hover:bg-slate-800`}
                         >
                           <GmailIcon className="h-4 w-4 mr-2" />
-                          Connect Gmail Account
+                          Connect Account
                         </button>
                       </div>
                     )}

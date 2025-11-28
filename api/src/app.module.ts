@@ -13,6 +13,10 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { IndexingModule } from './indexing/indexing.module';
 import { CompositionModule } from './composition/composition.module';
 import { bearer } from "better-auth/plugins";
+import * as jose from 'jose';
+import { listAccountsPlugin } from './auth/list-accounts.plugin';
+
+
 
 @Module({
   imports: [
@@ -45,45 +49,57 @@ import { bearer } from "better-auth/plugins";
     CompositionModule,
     AuthModule.forRootAsync({
       useFactory: (connection: Connection, configService: ConfigService) => {
-        return {
-          auth: betterAuth({
-            plugins: [bearer()],
-            database: mongodbAdapter(connection.db as any, {
-              usePlural: true,
-            }),
-            socialProviders: {
-              google: {
-                clientId: configService.get('GOOGLE_CLIENT_ID') || '',
-                clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
-                enabled: true,
-                accessType: "offline",
-                prompt: "select_account consent",
-                mapProfileToUser: (profile) => {
-                  console.log('profile', JSON.stringify(profile, null, 2));
-                  return {
-                    firstName: 'AAA',
-                    lastName: 'BBB',
-                  };
-                },
-              },
-            },
-            account: {
-              accountLinking: {
-                enabled: true,
-                trustedProviders: ["google", "email-password"],
-                allowDifferentEmails: true
-              }
-            },
-            secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
-            baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
-            basePath: '/api/auth',
-            trustedOrigins: [
-              'http://localhost:3000',
-              'http://localhost:4000',
-              'http://localhost:5173',
-              // configService.get('CHROME_EXTENSION_ORIGINS') || '',
-            ],
+        const auth = betterAuth({
+          plugins: [bearer(), listAccountsPlugin()],
+          database: mongodbAdapter(connection.db as any, {
+            usePlural: true,
           }),
+          socialProviders: {
+            google: {
+              clientId: configService.get('GOOGLE_CLIENT_ID') || '',
+              clientSecret: configService.get('GOOGLE_CLIENT_SECRET') || '',
+              enabled: true,
+              accessType: "offline",
+              prompt: "select_account consent",
+            },
+          },
+          databaseHooks: {
+            account: {
+              create: {
+                before: async (account) => {
+                  const user = jose.decodeJwt(account.idToken)
+                  return { data: { ...account, email: user.email } };
+                },
+
+              },
+            }
+          },
+          account: {
+            accountLinking: {
+              enabled: true,
+              trustedProviders: ["google"],
+              allowDifferentEmails: true,
+              allowUnlinkingAll: true
+            },
+            additionalFields: {
+              email: {
+                type: "string",
+              }
+            }
+          },
+          secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
+          baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
+          basePath: '/api/auth',
+          trustedOrigins: [
+            'http://localhost:3000',
+            'http://localhost:4000',
+            'http://localhost:5173',
+            // configService.get('CHROME_EXTENSION_ORIGINS') || '',
+          ],
+        });  
+
+        return {
+          auth
         };
       },
       inject: [getConnectionToken(), ConfigService],

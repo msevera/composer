@@ -4,18 +4,44 @@ import { Connection } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import { ObjectId } from 'mongodb';
 import { google, gmail_v1 } from 'googleapis';
+import { AuthService } from '@thallesp/nestjs-better-auth';
 
 @Injectable()
 export class GmailService {
   constructor(
     @Inject(getConnectionToken()) private connection: Connection,
     private configService: ConfigService,
+    private authService: AuthService,
   ) { }
   private readonly refreshLabelName = this.configService.get('GMAIL_REFRESH_LABEL') || 'ComposerAITempRefresh';
 
-  async getGmailAccount(userId: string): Promise<Record<string, any> | null> {
+  async getGmailAccount(userId: string, accountId?: string): Promise<Record<string, any> | null> {
     const db = this.connection.db;
 
+    // If accountId is provided, try to find account by accountId and userId
+    if (accountId) {
+      // Try with userId as string first
+      let account = await db.collection('accounts').findOne({
+        userId: userId.toString(),
+        providerId: 'google',
+        accountId: accountId,
+      });
+
+      // If not found, try with userId as ObjectId
+      if (!account) {
+        account = await db.collection('accounts').findOne({
+          userId: new ObjectId(userId),
+          providerId: 'google',
+          accountId: accountId,
+        });
+      }
+
+      if (account) {
+        return account;
+      }
+    }
+
+    // Fallback to original behavior: find any Google account for the user
     // Try with userId as string first
     let account = await db.collection('accounts').findOne({
       userId: userId.toString(),
@@ -46,121 +72,6 @@ export class GmailService {
     return !!account;
   }
 
-  async refreshGoogleToken(userId: string) {
-    const account = await this.getGmailAccount(userId);
-    if (!account) {
-      throw new Error('Gmail account not found');
-    }
-
-    // Better-Auth might store tokens with different field names
-    const refreshToken = account.refreshToken || account.refresh_token;
-    if (!refreshToken) {
-      throw new Error('No refresh token available. User needs to re-authenticate.');
-    }
-
-    const clientId = this.configService.get('GOOGLE_CLIENT_ID');
-    const clientSecret = this.configService.get('GOOGLE_CLIENT_SECRET');
-
-    if (!clientId || !clientSecret) {
-      throw new Error('Google OAuth credentials not configured');
-    }
-
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: 'refresh_token',
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Token refresh failed:', response.status, errorText);
-      throw new Error(`Failed to refresh token: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const expiresAt = new Date(Date.now() + data.expires_in * 1000);
-
-    // Update the account with new access token
-    // Try both field name formats for compatibility
-    const updateQuery: any = {
-      $set: {
-        accessToken: data.access_token,
-        access_token: data.access_token, // Better-Auth might use snake_case
-        expiresAt: expiresAt,
-        expires_at: expiresAt,
-      },
-    };
-
-    if (data.refresh_token) {
-      updateQuery.$set.refreshToken = data.refresh_token;
-      updateQuery.$set.refresh_token = data.refresh_token;
-    }
-
-    const updated = await this.updateAccountTokens(userId, updateQuery);
-    console.log('Token refreshed and saved:', updated);
-
-    return {
-      accessToken: data.access_token,
-      expiresAt: expiresAt,
-    };
-  }
-
-  async getValidAccessToken(userId: string): Promise<string> {
-    const account = await this.getGmailAccount(userId);
-    if (!account) {
-      throw new Error('Gmail account not connected');
-    }
-
-    // Better-Auth might store tokens with different field names (camelCase vs snake_case)
-    const accessToken = account.accessToken || account.access_token;
-    const refreshToken = account.refreshToken || account.refresh_token;
-    const expiresAt = account.expiresAt
-      ? new Date(account.expiresAt)
-      : (account.expires_at ? new Date(account.expires_at) : null);
-
-    // If we have an access token, check if it's still valid
-    if (accessToken) {
-      const now = new Date();
-      const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-
-      // If token is expired or about to expire, refresh it
-      if (!expiresAt || expiresAt < fiveMinutesFromNow) {
-        console.log('Access token expired or expiring soon, refreshing...');
-        try {
-          const refreshed = await this.refreshGoogleToken(userId);
-          return refreshed.accessToken;
-        } catch (error) {
-          console.error('Failed to refresh token:', error);
-          throw new Error('Failed to refresh access token. User may need to re-authenticate.');
-        }
-      }
-
-      return accessToken;
-    }
-
-    // No access token, but we might have a refresh token
-    if (refreshToken) {
-      console.log('No access token found, but refresh token exists. Refreshing...');
-      try {
-        const refreshed = await this.refreshGoogleToken(userId);
-        return refreshed.accessToken;
-      } catch (error) {
-        console.error('Failed to refresh token:', error);
-        throw new Error('Failed to obtain access token. User needs to re-authenticate.');
-      }
-    }
-
-    // No access token and no refresh token - user needs to re-authenticate
-    throw new Error('No access token or refresh token available. User needs to reconnect their Gmail account.');
-  }
-
   private ensureGoogleOAuthConfig() {
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     const clientSecret = this.configService.get<string>('GOOGLE_CLIENT_SECRET');
@@ -170,8 +81,20 @@ export class GmailService {
     return { clientId, clientSecret };
   }
 
-  private async getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
-    const accessToken = await this.getValidAccessToken(userId);
+  async getValidAccessToken(userId: string, accountId?: string): Promise<string> {
+    const { accessToken } = await this.authService.api.getAccessToken({
+      body: {
+        providerId: 'google',
+        accountId: accountId,
+        userId: userId,
+      },
+    });
+
+    return accessToken;
+  }
+
+  private async getGmailClient(userId: string, accountId?: string): Promise<gmail_v1.Gmail> {    
+    const accessToken = await this.getValidAccessToken(userId, accountId);
     const { clientId, clientSecret } = this.ensureGoogleOAuthConfig();
     const auth = new google.auth.OAuth2(clientId, clientSecret);
     auth.setCredentials({ access_token: accessToken });
@@ -200,12 +123,13 @@ export class GmailService {
     pageToken?: string,
     maxResults: number = 50,
     query?: string,
+    accountId?: string,
   ): Promise<{
     messages: Array<{ id: string; threadId: string }>;
     nextPageToken?: string;
     resultSizeEstimate: number;
   }> {
-    const gmail = await this.getGmailClient(userId);
+    const gmail = await this.getGmailClient(userId, accountId);
     try {
       const { data } = await gmail.users.messages.list({
         userId: 'me',
@@ -278,9 +202,10 @@ export class GmailService {
     userId: string,
     messageIds: string[],
     format: 'full' | 'metadata' | 'minimal' | 'raw' = 'metadata',
+    accountId?: string,
     concurrency: number = 10,
   ): Promise<Array<any | null>> {
-    const gmail = await this.getGmailClient(userId);
+    const gmail = await this.getGmailClient(userId, accountId);
     const results: Array<any | null> = new Array(messageIds.length).fill(null);
 
     for (let i = 0; i < messageIds.length; i += concurrency) {
@@ -316,8 +241,8 @@ export class GmailService {
    * @param userId User ID
    * @param threadId Gmail thread ID
    */
-  async getThread(userId: string, threadId: string): Promise<any> {
-    const gmail = await this.getGmailClient(userId);
+  async getThread(userId: string, threadId: string, accountId?: string): Promise<any> {
+    const gmail = await this.getGmailClient(userId, accountId);
     try {
       const { data } = await gmail.users.threads.get({
         userId: 'me',

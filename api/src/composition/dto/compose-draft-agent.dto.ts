@@ -10,6 +10,9 @@ export class ComposeDraftAgentInput {
 
   @Field({ nullable: true })
   conversationId?: string;
+
+  @Field({ nullable: true })
+  accountId?: string;
 }
 
 @ObjectType()

@@ -11,8 +11,8 @@ interface GetCalendarEventsOptions {
 export class CalendarService {
   constructor(private readonly gmailService: GmailService) {}
 
-  async getCalendarEvents(userId: string, options: GetCalendarEventsOptions = {}) {
-    const accessToken = await this.gmailService.getValidAccessToken(userId);
+  async getCalendarEvents(userId: string, options: GetCalendarEventsOptions = {}, accountId?: string) {
+    const accessToken = await this.gmailService.getValidAccessToken(userId, accountId);
 
     const params = new URLSearchParams({
       singleEvents: 'true',

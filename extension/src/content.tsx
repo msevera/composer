@@ -28,6 +28,7 @@ const GRAPHQL_ENDPOINT =
   process.env.PLASMO_PUBLIC_API_URL ?? "http://localhost:4000/graphql";
 const API_BASE_URL = GRAPHQL_ENDPOINT.replace(/\/graphql$/i, "");
 const COMPOSITION_STREAM_URL = `${API_BASE_URL}/composition/stream`;
+const WEBSITE_URL = process.env.PLASMO_PUBLIC_WEBSITE_URL || "http://localhost:3000";
 const requiredGmailScopes = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -43,7 +44,7 @@ const App = () => {
   const [draftIndicator, setDraftIndicator] = useState<string | null>(null);
   const isThreadView = useIsGmailThreadView();
   const gmailThreadId = useGmailThreadId();
-  const [isMinimized, setIsMinimized] = useState(() => getSavedMinimizedState());
+  const [isMinimized, setIsMinimized] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentDraftMessageIdRef = useRef<string | null>(null);
@@ -54,6 +55,8 @@ const App = () => {
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
   const [hasRequiredGmailScopes, setHasRequiredGmailScopes] = useState(false);
   const [isCheckingGmailScopes, setIsCheckingGmailScopes] = useState(false);
+  const [isCurrentAccountConnected, setIsCurrentAccountConnected] = useState(false);
+  const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -112,6 +115,7 @@ const App = () => {
         if (isActive) {
           setHasRequiredGmailScopes(false);
           setIsCheckingGmailScopes(false);
+          setIsCurrentAccountConnected(false);
         }
         return;
       }
@@ -121,8 +125,28 @@ const App = () => {
       }
 
       try {
+        const currentGmailEmail = getCurrentGmailAccountEmail();
         const accounts = await authClient.listAccounts();
         const accountList = accounts.data ?? [];
+        
+        // Find the current Gmail account in the list
+        const currentAccount = currentGmailEmail
+          ? accountList.find(
+              (account: any) =>
+                account.providerId === "google" &&
+                (account.email === currentGmailEmail ||
+                 account.accountEmail === currentGmailEmail)
+            )
+          : null;
+
+        const currentAccountInList = Boolean(currentAccount);
+
+        if (isActive) {
+          setIsCurrentAccountConnected(currentAccountInList);
+          setCurrentAccountId(currentAccount?.id || null);
+        }
+
+        // Find Gmail account with required scopes
         const gmailAccount = accountList.find(
           (account: any) => account.providerId === "google",
         );
@@ -137,6 +161,8 @@ const App = () => {
         console.error("Failed to verify Gmail scopes", error);
         if (isActive) {
           setHasRequiredGmailScopes(false);
+          setIsCurrentAccountConnected(false);
+          setCurrentAccountId(null);
         }
       } finally {
         if (isActive) {
@@ -169,6 +195,26 @@ const App = () => {
       isThreadView,
       threadId,
       session,
+    ],
+  );
+
+  const shouldRenderConnectAccount = useMemo(
+    () =>
+      Boolean(
+        !isPending &&
+        !isCheckingGmailScopes &&
+        session &&
+        isThreadView &&
+        threadId &&
+        !isCurrentAccountConnected,
+      ),
+    [
+      isCheckingGmailScopes,
+      isPending,
+      isThreadView,
+      threadId,
+      session,
+      isCurrentAccountConnected,
     ],
   );
 
@@ -208,9 +254,22 @@ const App = () => {
     };
   }, [closeEventSource]);
 
+  // Load minimized state when account ID changes
   useEffect(() => {
-    persistMinimizedState(isMinimized);
-  }, [isMinimized]);
+    if (currentAccountId) {
+      const savedState = getSavedMinimizedState(currentAccountId);
+      setIsMinimized(savedState);
+    } else {
+      setIsMinimized(false);
+    }
+  }, [currentAccountId]);
+
+  // Persist minimized state when it changes
+  useEffect(() => {
+    if (currentAccountId !== null) {
+      persistMinimizedState(isMinimized, currentAccountId);
+    }
+  }, [isMinimized, currentAccountId]);
 
   useEffect(() => {
     return () => {
@@ -366,11 +425,34 @@ const App = () => {
         params.set("conversationId", conversationId);
       }
 
-      const session = await authClient.getSession()     
+      const session = await authClient.getSession();
+      const currentGmailEmail = getCurrentGmailAccountEmail();
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${session?.data?.session?.token}`
+      };
+      
+      // Get accountId by matching email with listAccounts
+      if (currentGmailEmail) {
+        try {
+          const accounts = await authClient.listAccounts();
+          const accountList = accounts.data ?? [];
+          const gmailAccount = accountList.find(
+            (account: any) => 
+              account.providerId === "google" && 
+              (account.email === currentGmailEmail || 
+               account.accountEmail === currentGmailEmail)
+          );
+          
+          if (gmailAccount?.accountId) {
+            headers['X-Account-Id'] = gmailAccount.id;
+          }
+        } catch (error) {
+          console.error("Failed to get accountId for email", error);
+        }
+      }
+      
       fetchEventSource(`${COMPOSITION_STREAM_URL}?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${session?.data?.session?.token}`
-        },
+        headers,
         onmessage(event) {
           try {
             const payload = JSON.parse(event.data) as ComposeStreamEvent;
@@ -481,8 +563,64 @@ const App = () => {
     }
   }, []);
 
-  if (!shouldRender) {
+  const handleConnectAccount = useCallback(() => {
+    window.open(`${WEBSITE_URL}/dashboard`, "_blank");
+  }, []);
+
+  if (!shouldRender && !shouldRenderConnectAccount) {
     return null;
+  }
+
+  // Render Connect Account CTA when account is not connected
+  if (shouldRenderConnectAccount) {
+    if (isMinimized) {
+      return (
+        <div className="pointer-events-none fixed bottom-4 left-4 z-[2147483646] flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-[28px] bg-stone-900/95 px-4 py-2 pr-2 text-neutral-100 shadow-lg shadow-black/60">
+            <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Composer ai</p>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="text-neutral-400"
+              onClick={handleMaximize}
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
+        <div className="pointer-events-auto w-full max-w-xl rounded-[28px] bg-stone-900 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur flex flex-col">
+          <div className="p-4 flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Composer ai</p>
+            <div className="flex items-center gap-2">
+              <Button size="xs" variant="ghost" className="text-neutral-500" onClick={handleMinimize}>
+                <Minimize2 className="h-4 w-4" />
+                minimize
+              </Button>
+            </div>
+          </div>
+          <div className="px-4 pb-4">
+            <p className="text-sm text-neutral-200 mb-4">
+              Connect your Gmail account to start composing emails with AI.
+            </p>
+            <Button
+              type="button"
+              onClick={handleConnectAccount}
+              variant="default"
+              size="sm"
+              className="w-full"
+            >
+              Connect Account
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (isMinimized) {
@@ -765,6 +903,67 @@ function checkThreadView() {
   return hasThreadDomMarkers();
 }
 
+function getCurrentGmailAccountEmail(): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  // Try to find the email from Gmail's account switcher/profile area
+  // Gmail stores account info in various places
+  const accountSelectors = [
+    'a[aria-label*="@"]', // Account switcher link
+    '[data-ogab]', // Gmail account badge
+    'div[data-email]', // Element with email data attribute
+  ];
+
+  for (const selector of accountSelectors) {
+    const element = document.querySelector(selector);
+    if (element) {
+      const email = element.getAttribute('aria-label') || 
+                   element.getAttribute('data-email') ||
+                   element.textContent?.trim();
+      if (email && email.includes('@')) {
+        // Extract email from text if it contains other text
+        const emailMatch = email.match(/[\w.-]+@[\w.-]+\.\w+/);
+        if (emailMatch) {
+          return emailMatch[0];
+        }
+      }
+    }
+  }
+
+  // Try to get from Gmail's internal state (if accessible)
+  try {
+    const gmailData = (window as any).gmonkey?.data;
+    if (gmailData?.userEmail) {
+      return gmailData.userEmail;
+    }
+  } catch (e) {
+    // Gmail API not available
+  }
+
+  // Try to extract from URL if it contains account info
+  const urlParams = new URLSearchParams(window.location.search);
+  const accountParam = urlParams.get('authuser');
+  if (accountParam !== null) {
+    // If we have multiple accounts, we might need to check which one is active
+    // For now, we'll try to get it from the DOM
+  }
+
+  // Last resort: try to find any email-like text in the account area
+  const accountArea = document.querySelector('[role="banner"]') || 
+                     document.querySelector('[data-testid="account-switcher"]');
+  if (accountArea) {
+    const emailRegex = /[\w.-]+@[\w.-]+\.\w+/;
+    const emailMatch = accountArea.textContent?.match(emailRegex);
+    if (emailMatch) {
+      return emailMatch[0];
+    }
+  }
+
+  return null;
+}
+
 function hasThreadDomMarkers() {
   if (typeof document === "undefined") {
     return false;
@@ -822,25 +1021,27 @@ function formatToolName(name: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-const MINIMIZED_STORAGE_KEY = "composerai-composer-minimized";
+function getMinimizedStorageKey(accountId: string) {
+  return `composerai-composer-minimized-${accountId}`;
+}
 
-function getSavedMinimizedState() {
-  if (typeof window === "undefined") {
+function getSavedMinimizedState(accountId: string | null): boolean {
+  if (typeof window === "undefined" || !accountId) {
     return false;
   }
   try {
-    return window.localStorage.getItem(MINIMIZED_STORAGE_KEY) === "true";
+    return window.localStorage.getItem(getMinimizedStorageKey(accountId)) === "true";
   } catch {
     return false;
   }
 }
 
-function persistMinimizedState(value: boolean) {
-  if (typeof window === "undefined") {
+function persistMinimizedState(value: boolean, accountId: string | null) {
+  if (typeof window === "undefined" || !accountId) {
     return;
   }
   try {
-    window.localStorage.setItem(MINIMIZED_STORAGE_KEY, String(value));
+    window.localStorage.setItem(getMinimizedStorageKey(accountId), String(value));
   } catch {
     // ignore write errors
   }

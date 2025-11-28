@@ -21,6 +21,7 @@ export class CompositionService {
         userId: userId.toString(),
         threadId: input.threadId,
         conversationId: input.conversationId,
+        accountId: input.accountId,
       },
       writer,
       signal,

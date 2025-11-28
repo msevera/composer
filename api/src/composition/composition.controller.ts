@@ -31,7 +31,10 @@ export class CompositionController {
 
     const userId = user.id || user.userId || user._id;
     const { threadId, userPrompt, conversationId } = query;
-
+    
+    // Extract account ID from header if provided
+    const accountId = req.headers['x-account-id'] as string | undefined;
+    
     if (!threadId) {
       throw new BadRequestException('threadId is required');
     }
@@ -47,7 +50,7 @@ export class CompositionController {
       this.compositionService
         .composeDraftStreamWithAgent(
           userId.toString(),
-          { threadId, userPrompt: normalizedUserPrompt, conversationId },
+          { threadId, userPrompt: normalizedUserPrompt, conversationId, accountId },
           writer,
           abortController.signal,
         )
