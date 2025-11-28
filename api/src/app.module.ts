@@ -14,10 +14,12 @@ import { CompositionModule } from './composition/composition.module';
 import { bearer } from "better-auth/plugins";
 import * as jose from 'jose';
 import { listAccountsPlugin } from './auth/list-accounts.plugin';
+import { AppController } from './app.controller';
 
 
 
 @Module({
+  controllers: [AppController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
