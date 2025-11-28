@@ -58,6 +58,13 @@ import { bearer } from "better-auth/plugins";
                 enabled: true,
                 accessType: "offline",
                 prompt: "select_account consent",
+                mapProfileToUser: (profile) => {
+                  console.log('profile', JSON.stringify(profile, null, 2));
+                  return {
+                    firstName: 'AAA',
+                    lastName: 'BBB',
+                  };
+                },
               },
             },
             account: {

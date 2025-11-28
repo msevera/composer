@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
+  const [gmailAccounts, setGmailAccounts] = useState<Array<{ accountId: string; email?: string; scopes?: string[] }>>([]);
   const [isExtensionStepCompleted, setIsExtensionStepCompleted] = useState(false);
   const [isExtensionInstalled, setIsExtensionInstalled] = useState(false);
   const [isCheckingExtension, setIsCheckingExtension] = useState(true);
@@ -88,6 +89,7 @@ export default function DashboardPage() {
   const refreshConnections = useCallback(async () => {
     if (!isAuthenticated) {
       setIsGmailConnected(false);
+      setGmailAccounts([]);
       return;
     }
 
@@ -95,11 +97,17 @@ export default function DashboardPage() {
       setIsCheckingGmail(true);
       const accounts = await authClient.listAccounts();
       const allAccounts = accounts.data ?? [];
-      const gmailAccount = allAccounts.find((account: any) => account.providerId === 'google');
-      const gmailHasScopes = requiredGmailScopes.every((scope) =>
-        gmailAccount?.scopes?.includes?.(scope),
+      const gmailAccountsList = allAccounts.filter((account: any) => account.providerId === 'google');
+      const validGmailAccounts = gmailAccountsList.filter((account: any) =>
+        requiredGmailScopes.every((scope) => account?.scopes?.includes?.(scope))
       );
-      setIsGmailConnected(Boolean(gmailAccount && gmailHasScopes));
+      
+      setGmailAccounts(validGmailAccounts.map((account: any) => ({
+        accountId: account.accountId || account.id || account._id,
+        email: account.email || account.accountEmail,
+        scopes: account.scopes,
+      })));
+      setIsGmailConnected(validGmailAccounts.length > 0);
     } finally {
       setIsCheckingGmail(false);
     }
@@ -178,6 +186,20 @@ export default function DashboardPage() {
     checkSession();
   }, [checkSession]);
 
+  // Refresh connections when window regains focus (e.g., after OAuth popup)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isAuthenticated) {
+      return;
+    }
+    const handleFocus = () => {
+      refreshConnections();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isAuthenticated, refreshConnections]);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -214,14 +236,23 @@ export default function DashboardPage() {
           'https://www.googleapis.com/auth/calendar.readonly',
         ],
       });
+      // After OAuth redirect, refreshConnections will be called in checkSession
+      // But we also refresh here in case the redirect doesn't trigger it
+      await refreshConnections();
     } catch (error: any) {
       setMessage(error?.message ?? 'Failed to connect Gmail');
     }
   };
 
-  const handleDisconnectGmail = async () => {
-    await authClient.unlinkAccount({ providerId: 'google' });
-    await refreshConnections();
+  const handleDisconnectGmail = async (accountId?: string) => {
+    try {
+      setMessage('');
+      await authClient.unlinkAccount({ providerId: 'google', accountId });
+      await refreshConnections();
+      setMessage('Gmail account disconnected successfully');
+    } catch (error: any) {
+      setMessage(error?.message ?? 'Failed to disconnect Gmail account');
+    }
   };
 
 
@@ -441,30 +472,84 @@ export default function DashboardPage() {
                     Manage your connected services
                   </p>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <IntegrationStatusCard
-                    name="Gmail"
-                    description="Create responses with your Gmail context."
-                    isConnected={isGmailConnected}
-                    isChecking={isCheckingGmail}
-                    onConnect={handleConnectGmail}
-                    onDisconnect={handleDisconnectGmail}
-                    connectLabel="Connect Gmail"
-                    disconnectLabel="Disconnect"
-                    actionLabel="Connect Gmail"
-                    disableDisconnect
-                  />
-                  <IntegrationStatusCard
-                    name="Chrome extension"
-                    description="Reply directly from Gmail."
-                    isConnected={isExtensionInstalled}
-                    isChecking={isCheckingExtension}
-                    onConnect={() => window.open(EXTENSION_INSTALL_URL, '_blank', 'noreferrer')}
-                    connectLabel="Install extension"
-                    disconnectLabel="Installed"
-                    actionLabel="Chrome Extension"
-                    disableDisconnect
-                  />
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Gmail Accounts</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Connect multiple Gmail accounts to create responses with context from all your accounts.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleConnectGmail}
+                        disabled={isCheckingGmail}
+                        className={`${buttonBase} bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed`}
+                      >
+                        <GmailIcon className="h-4 w-4 mr-2" />
+                        Connect Gmail Account
+                      </button>
+                    </div>
+                    {isCheckingGmail ? (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+                        Checking accounts...
+                      </div>
+                    ) : gmailAccounts.length > 0 ? (
+                      <div className="space-y-3">
+                        {gmailAccounts.map((account) => (
+                          <div
+                            key={account.accountId}
+                            className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex items-center gap-3">
+                              <GmailIcon className="h-5 w-5" />
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {account.email || 'Gmail Account'}
+                                </p>
+                                <p className="text-xs text-slate-500">Connected</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleDisconnectGmail(account.accountId)}
+                              className={`${buttonBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50`}
+                            >
+                              Disconnect
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
+                        <GmailIcon className="h-8 w-8 mx-auto mb-3 opacity-50" />
+                        <p className="text-sm font-semibold text-slate-900 mb-1">No Gmail accounts connected</p>
+                        <p className="text-xs text-slate-500 mb-4">
+                          Connect a Gmail account to get started with Composer AI
+                        </p>
+                        <button
+                          onClick={handleConnectGmail}
+                          className={`${buttonBase} bg-slate-900 text-white hover:bg-slate-800`}
+                        >
+                          <GmailIcon className="h-4 w-4 mr-2" />
+                          Connect Gmail Account
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 mb-4">Chrome Extension</p>
+                    <IntegrationStatusCard
+                      name="Chrome extension"
+                      description="Reply directly from Gmail."
+                      isConnected={isExtensionInstalled}
+                      isChecking={isCheckingExtension}
+                      onConnect={() => window.open(EXTENSION_INSTALL_URL, '_blank', 'noreferrer')}
+                      connectLabel="Install extension"
+                      disconnectLabel="Installed"
+                      actionLabel="Chrome Extension"
+                      disableDisconnect
+                    />
+                  </div>
                 </div>
               </div>
             )}
