@@ -81,10 +81,13 @@ export default function DashboardPage() {
     [],
   );
 
-  const requiredGmailScopes = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/calendar.readonly',
-  ];
+  const requiredGmailScopes = useMemo(
+    () => [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/calendar.readonly',
+    ],
+    [],
+  );
 
   const refreshConnections = useCallback(async () => {
     if (!isAuthenticated) {
@@ -116,7 +119,7 @@ export default function DashboardPage() {
     } finally {
       setIsCheckingGmail(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, requiredGmailScopes]);
 
 
   useEffect(() => {
@@ -230,7 +233,7 @@ export default function DashboardPage() {
     };
   }, [isUserMenuOpen]);
 
-  const handleConnectGmail = async () => {
+  const handleConnectGmail = useCallback(async () => {
     setMessage('');
     try {
       await authClient.linkSocial({
@@ -247,7 +250,7 @@ export default function DashboardPage() {
     } catch (error: any) {
       setMessage(error?.message ?? 'Failed to connect Gmail');
     }
-  };
+  }, [refreshConnections]);
 
   const handleDisconnectGmail = async (accountId?: string) => {
     try {
@@ -262,7 +265,7 @@ export default function DashboardPage() {
   };
 
 
-  const handleCompleteOnboarding = async () => {
+  const handleCompleteOnboarding = useCallback(async () => {
     if (!user) return;
     try {
       await setOnboardingCompleted({ variables: { onboardingCompleted: true } });
@@ -271,7 +274,7 @@ export default function DashboardPage() {
     } catch (error: any) {
       setMessage(error?.message ?? 'Failed to update onboarding status');
     }
-  };
+  }, [user, setOnboardingCompleted, refetchUser]);
 
   const handleSignOut = async () => {
     await authClient.signOut();
@@ -482,7 +485,7 @@ export default function DashboardPage() {
                   </div>
                   {(user?.draftsUsed ?? 0) >= (user?.maxDraftsAllowed ?? 10) && (
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      You've reached your draft limit. Please reach out to{' '}
+                      You&apos;ve reached your draft limit. Please reach out to{' '}
                       <a
                         href="mailto:michael.svr@gmail.com"
                         className="font-semibold underline hover:text-amber-900"
