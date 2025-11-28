@@ -409,6 +409,17 @@ export class CompositionAgentService implements OnModuleDestroy {
       userId: state.userId,
       emailExamples: state.emailExamples ?? [],
     }, Boolean(state.streamingEnabled));
+    
+    // Increment usage counter after successful draft generation
+    if (state.userId) {
+      try {
+        await this.userService.incrementDraftsUsed(state.userId);
+      } catch (error) {
+        this.logger.error(`Failed to increment drafts used for user ${state.userId}: ${error instanceof Error ? error.message : String(error)}`);
+        // Don't throw - draft generation succeeded, just tracking failed
+      }
+    }
+    
     const draftDialogueMessage = new AIMessage(draft);
     const dialogueUpdates: BaseMessage[] = [];
     if (state.latestUserPrompt) {

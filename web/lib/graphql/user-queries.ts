@@ -18,6 +18,8 @@ export const GET_ME = gql`
       name
       sendProductUpdates
       onboardingCompleted
+      maxDraftsAllowed
+      draftsUsed
       lastSignIn
       createdAt
       updatedAt

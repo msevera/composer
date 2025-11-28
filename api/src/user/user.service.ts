@@ -62,5 +62,39 @@ export class UserService {
       )
       .exec();
   }
+
+  async incrementDraftsUsed(userId: string): Promise<UserDocument | null> {
+    return this.userModel
+      .findByIdAndUpdate(
+        userId,
+        { $inc: { draftsUsed: 1 } },
+        { new: true },
+      )
+      .exec();
+  }
+
+  async checkDraftLimit(userId: string): Promise<{ hasReachedLimit: boolean; maxDraftsAllowed: number; draftsUsed: number }> {
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      throw new Error('User not found');
+    }
+    const maxDrafts = user.maxDraftsAllowed;
+    const draftsUsed = user.draftsUsed;
+    return {
+      hasReachedLimit: draftsUsed >= maxDrafts,
+      maxDraftsAllowed: maxDrafts,
+      draftsUsed,
+    };
+  }
+
+  async updateMaxDraftsAllowed(userId: string, maxDrafts: number): Promise<UserDocument | null> {
+    return this.userModel
+      .findByIdAndUpdate(
+        userId,
+        { maxDraftsAllowed: maxDrafts },
+        { new: true },
+      )
+      .exec();
+  }
 }
 

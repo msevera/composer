@@ -470,6 +470,30 @@ export default function DashboardPage() {
               <OnboardingTimeline steps={onboardingSteps} />
             ) : (
               <div>
+                {/* Usage Statistics */}
+                <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-800 mb-1">
+                      Usage Statistics
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      Email drafts generated: {user?.draftsUsed ?? 0} / {user?.maxDraftsAllowed ?? 10}
+                    </p>
+                  </div>
+                  {(user?.draftsUsed ?? 0) >= (user?.maxDraftsAllowed ?? 10) && (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                      You've reached your draft limit. Please reach out to{' '}
+                      <a
+                        href="mailto:michael.svr@gmail.com"
+                        className="font-semibold underline hover:text-amber-900"
+                      >
+                        michael.svr@gmail.com
+                      </a>{' '}
+                      to upgrade your account.
+                    </div>
+                  )}
+                </div>
+
                 <div className="pt-6 mt-6 border-t border-slate-100 bg-white mb-4">
                   <p className="text-sm font-semibold uppercase tracking-wide text-slate-800 mb-2">
                     Integrations

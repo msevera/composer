@@ -20,6 +20,12 @@ export class User {
   @Field({ nullable: true })
   onboardingCompleted?: boolean;
 
+  @Field({ nullable: true })
+  maxDraftsAllowed?: number;
+
+  @Field({ nullable: true })
+  draftsUsed?: number;
+
   @Field()
   createdAt: Date;
 

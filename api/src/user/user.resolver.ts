@@ -97,8 +97,10 @@ export class UserResolver {
       email: userDoc.email,
       name: userDoc.name,
       lastSignIn: userDoc.lastSignIn,
-      sendProductUpdates: userDoc.sendProductUpdates ?? false,
-      onboardingCompleted: userDoc.onboardingCompleted ?? false,
+      sendProductUpdates: userDoc.sendProductUpdates,
+      onboardingCompleted: userDoc.onboardingCompleted,
+      maxDraftsAllowed: userDoc.maxDraftsAllowed,
+      draftsUsed: userDoc.draftsUsed,
       createdAt: userDoc.createdAt || new Date(),
       updatedAt: userDoc.updatedAt || new Date(),
     };

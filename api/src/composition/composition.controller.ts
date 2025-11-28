@@ -11,6 +11,7 @@ import { Observable } from 'rxjs';
 import type { Request } from 'express';
 import { CompositionService } from './composition.service';
 import { CompositionStreamEvent } from './services/composition-agent.service';
+import { UserService } from '../user/user.service';
 
 interface StreamComposeQuery {
   threadId?: string;
@@ -20,7 +21,10 @@ interface StreamComposeQuery {
 
 @Controller('composition')
 export class CompositionController {
-  constructor(private readonly compositionService: CompositionService) {}
+  constructor(
+    private readonly compositionService: CompositionService,
+    private readonly userService: UserService,
+  ) {}
 
   @Sse('stream')
   streamCompose(@Req() req: Request, @Query() query: StreamComposeQuery): Observable<MessageEvent> {
@@ -42,30 +46,64 @@ export class CompositionController {
     const normalizedUserPrompt = typeof userPrompt === 'string' ? userPrompt : '';
 
     return new Observable<MessageEvent>((subscriber) => {
-      const abortController = new AbortController();
-      const writer = (event: CompositionStreamEvent) => {
-        subscriber.next({ data: event });
-      };
+      // Check usage limit before starting composition
+      this.userService
+        .checkDraftLimit(userId.toString())
+        .then(async (limitCheck) => {
+          const user = await this.userService.findById(userId.toString());
+          if (limitCheck.hasReachedLimit) {
+            subscriber.next({
+              data: {
+                type: 'error',
+                key: 'draft-limit-reached',
+                title: 'You\'ve reached the limit. Send this email to <a style="color: #00ff00;" href="mailto:michael.svr@gmail.com">michael.svr@gmail.com</a> to upgrade your account.',
+                message: [
+                  `Hey Mike,\n\n`,
+                  `I've reached the limit of drafts I can create. Please upgrade my account.\n\n`,
+                  `Best,`,
+                  `${user?.name}`,
+                ].join('\n'),
+                
+              },
+            });
+            subscriber.complete();
+            return;
+          }
 
-      this.compositionService
-        .composeDraftStreamWithAgent(
-          userId.toString(),
-          { threadId, userPrompt: normalizedUserPrompt, conversationId, accountId },
-          writer,
-          abortController.signal,
-        )
-        .then((result) => {
-          subscriber.next({ data: { type: 'final', payload: result } });
-          subscriber.complete();
+          const abortController = new AbortController();
+          const writer = (event: CompositionStreamEvent) => {
+            subscriber.next({ data: event });
+          };
+
+          this.compositionService
+            .composeDraftStreamWithAgent(
+              userId.toString(),
+              { threadId, userPrompt: normalizedUserPrompt, conversationId, accountId },
+              writer,
+              abortController.signal,
+            )
+            .then((result) => {
+              subscriber.next({ data: { type: 'final', payload: result } });
+              subscriber.complete();
+            })
+            .catch((error) => {
+              subscriber.next({ data: { type: 'error', message: error instanceof Error ? error.message : String(error) } });
+              subscriber.complete();
+            });
+
+          return () => {
+            abortController.abort();
+          };
         })
         .catch((error) => {
-          subscriber.next({ data: { type: 'error', message: error instanceof Error ? error.message : String(error) } });
+          subscriber.next({
+            data: {
+              type: 'error',
+              message: error instanceof Error ? error.message : String(error),
+            },
+          });
           subscriber.complete();
         });
-
-      return () => {
-        abortController.abort();
-      };
     });
   }
 }

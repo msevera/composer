@@ -52,7 +52,7 @@ const App = () => {
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const [copiedDraftId, setCopiedDraftId] = useState<string | null>(null);
-  const [errorMessages, setErrorMessages] = useState<string[]>([]);
+  const [errorMessages, setErrorMessages] = useState<ComposeStreamEvent[]>([]);
   const [hasRequiredGmailScopes, setHasRequiredGmailScopes] = useState(false);
   const [isCheckingGmailScopes, setIsCheckingGmailScopes] = useState(false);
   const [isCurrentAccountConnected, setIsCurrentAccountConnected] = useState(false);
@@ -299,7 +299,7 @@ const App = () => {
           const text = `${formatToolName(event.tool)} failed: ${event.message}`;
           console.error(text);
           setDraftIndicator(text);
-          setErrorMessages((prev) => [...prev, text]);
+          setErrorMessages((prev) => [...prev, event]);
           break;
         }
         case "draft_stream_started": {
@@ -381,7 +381,7 @@ const App = () => {
           console.error(event.message);
           closeEventSource();
           setDraftIndicator(null);
-          setErrorMessages((prev) => [...prev, event.message]);
+          setErrorMessages((prev) => [...prev, event]);
           setIsRunning(false);
           break;
         case "final":
@@ -656,7 +656,7 @@ const App = () => {
         className="pointer-events-auto w-full max-w-xl rounded-[28px] bg-stone-900 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur flex flex-col max-h-[50vh]"
       >
         <div className="flex-shrink-0">
-          {(agentMessages.length > 0 || isRunning) && (
+          {(agentMessages.length > 0 || isRunning || errorMessages.length > 0) && (
             <div className="p-4 flex items-center justify-between">
               <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">Composer ai</p>
               <div className="flex items-center gap-2">
@@ -683,7 +683,7 @@ const App = () => {
           ref={conversationScrollRef}
           className={cn(
             "flex-1 overflow-y-auto space-y-3 text-sm text-neutral-200",
-            agentMessages.length > 0 || draftIndicator ? "p-4 pt-0" : "p-0",
+            agentMessages.length > 0 || draftIndicator || errorMessages.length > 0 ? "p-4 pt-0" : "p-0",
           )}
         >
           {(agentMessages.length > 0 || draftIndicator) && (
@@ -710,12 +710,29 @@ const App = () => {
           )}
           {errorMessages.length > 0 && (
             <div className="space-y-2 text-xs">
-              {errorMessages.map((error, index) => (
+              {errorMessages.map((error, index) => error.type === 'error' && error.key === 'draft-limit-reached' ? (
+                <div
+                  key={`error-${index}`}                  
+                >
+                  {
+                    error.title && (
+                      <p dangerouslySetInnerHTML={{ __html: error.title }} className="text-xs text-white/60 mb-4 p-4 rounded-2xl border border-green-500/30 bg-green-500/10 text-green-100" />
+                    )
+                  }
+                  <DraftBubble
+                    key={error.key}
+                    text={error.message}
+                    copied={copiedDraftId === error.key}
+                    onCopy={() => void handleCopyDraft(error.message, error.key)}
+                    className="rounded-2xl border border-green-500/30 bg-green-500/10 px-3 py-2 text-green-100"
+                  />
+                </div>
+              ) : (
                 <div
                   key={`error-${index}`}
                   className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-100"
                 >
-                  {error}
+                  {error.message}
                 </div>
               ))}
             </div>
@@ -774,15 +791,16 @@ interface DraftBubbleProps {
   onCopy?: () => void;
   indicator?: string | null;
   copied?: boolean;
+  className?: string;
 }
 
-const DraftBubble = ({ text, onCopy, indicator, copied }: DraftBubbleProps) => {
+const DraftBubble = ({ text, onCopy, indicator, copied, className }: DraftBubbleProps) => {
   const hasDraftText = Boolean(text);
   const indicatorLabel = indicator ?? "Preparing draft…";
   const showCopyButton = hasDraftText && onCopy;
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-neutral-100">
+    <div className={cn("rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-neutral-100", className)}>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">Draft</p>
         {showCopyButton ? (
@@ -1005,7 +1023,7 @@ type ComposeStreamEvent =
   | { type: "draft_stream_finished"; draft: string }
   | { type: "start"; payload: { conversationId: string; threadId: string } }
   | { type: "final"; payload: Record<string, any> }
-  | { type: "error"; message: string };
+  | { type: "error"; key: string; message: string };
 
 
 function generateMessageId() {

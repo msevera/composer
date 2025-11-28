@@ -14,11 +14,17 @@ export class User {
   @Prop()
   lastSignIn?: Date;
 
-  @Prop({ default: false })
+  @Prop()
   sendProductUpdates?: boolean;
 
-  @Prop({ default: false })
+  @Prop()
   onboardingCompleted?: boolean;
+
+  @Prop()
+  maxDraftsAllowed?: number;
+
+  @Prop()
+  draftsUsed?: number;
 
   @Prop()
   createdAt?: Date;

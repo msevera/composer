@@ -70,9 +70,23 @@ import { listAccountsPlugin } from './auth/list-accounts.plugin';
                   const user = jose.decodeJwt(account.idToken)
                   return { data: { ...account, email: user.email } };
                 },
-
               },
-            }
+            },
+            user: {
+              create: {
+                before: async (user) => {
+                  return {
+                    data: {
+                      ...user,
+                      maxDraftsAllowed: 10,
+                      draftsUsed: 0,
+                      onboardingCompleted: false,
+                      sendProductUpdates: false
+                    }
+                  };
+                },
+              },
+            },
           },
           account: {
             accountLinking: {
@@ -87,6 +101,22 @@ import { listAccountsPlugin } from './auth/list-accounts.plugin';
               }
             }
           },
+          user: {
+            additionalFields: {
+              maxDraftsAllowed: {
+                type: "number",               
+              },
+              draftsUsed: {
+                type: "number",                
+              },
+              onboardingCompleted: {
+                type: "boolean",                
+              },
+              sendProductUpdates: {
+                type: "boolean",                
+              },
+            }
+          },
           secret: configService.get('BETTER_AUTH_SECRET') || 'your-secret-key',
           baseURL: configService.get('BETTER_AUTH_URL') || 'http://localhost:4000',
           basePath: '/api/auth',
@@ -96,7 +126,7 @@ import { listAccountsPlugin } from './auth/list-accounts.plugin';
             'http://localhost:5173',
             // configService.get('CHROME_EXTENSION_ORIGINS') || '',
           ],
-        });  
+        });
 
         return {
           auth
