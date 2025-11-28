@@ -3,7 +3,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
-import { BullModule } from '@nestjs/bullmq';
 import { UserModule } from './user/user.module';
 import { GmailModule } from './gmail/gmail.module';
 import { AuthModule } from "@thallesp/nestjs-better-auth";
@@ -27,15 +26,6 @@ import { listAccountsPlugin } from './auth/list-accounts.plugin';
       useFactory: () => ({
         uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/composerai',
       }),
-    }),
-    BullModule.forRootAsync({
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get('REDIS_HOST') || 'localhost',
-          port: configService.get('REDIS_PORT') || 6379,
-        },
-      }),
-      inject: [ConfigService],
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
