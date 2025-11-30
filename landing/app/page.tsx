@@ -3,6 +3,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Mail, Zap, Clock, Sparkles, Shield, ArrowRight, CheckCircle2, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import ComposerAIDemo from '@/components/ComposerAIDemo';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -31,9 +32,9 @@ export default function Home() {
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center gap-2"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-900/20">
+            {/* <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-900/20">
               <Sparkles className="w-5 h-5 text-white" />
-            </div>
+            </div> */}
             <span className="text-xl font-semibold text-white">Composer AI</span>
           </motion.div>
 
@@ -98,7 +99,7 @@ export default function Home() {
                 Start with Gmail
                 <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
               </Button>
-              <p className="text-sm text-gray-500 mt-4">Free to try • No credit card required</p>
+              <p className="text-sm text-gray-500 mt-4">Free • No credit card required</p>
             </motion.div>
           </motion.div>
         </div>
@@ -128,48 +129,23 @@ export default function Home() {
               </div>
 
               {/* Email Interface Mock */}
-              <div className="p-6 md:p-8">
-                <div className="flex items-start gap-4">
+              <div className="flex p-6 md:p-8 h-[542px]">
+                <div className="flex flex-1 items-start gap-4">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center text-white font-medium text-sm shrink-0 shadow-lg shadow-orange-900/20">
                     JD
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-gray-200">John Doe</span>
-                      <span className="text-xs text-gray-500">2 min ago</span>
+                  <div className="flex flex-col flex-1 h-full">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-gray-200">John Doe</span>
+                        <span className="text-xs text-gray-500">2 min ago</span>
+                      </div>
+                      <p className="text-sm text-gray-400 mb-4">
+                        Hi, I wanted to follow up on our meeting yesterday. Could you send me the project timeline we discussed?
+                      </p>
                     </div>
-                    <p className="text-sm text-gray-400 mb-4">
-                      Hi, I wanted to follow up on our meeting yesterday. Could you send me the project timeline we discussed?
-                    </p>
-
-                    {/* AI Response */}
-                    <div className="bg-gradient-to-br from-blue-900/20 to-violet-900/20 rounded-3xl p-4 border border-blue-500/20">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-xs uppercase tracking-[0.3em] text-gray-300 text-neutral-400">Composer AI</span>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <div className="self-end mb-2">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">You</div>
-                          </div>
-                          <pre className='whitespace-pre-wrap text-xs text-neutral-100 rounded-xl p-4 border border-blue-500/20 '>
-                            {`Of course`}
-                          </pre>
-                        </div>
-                        <div className="rounded-xl p-4 border border-blue-500/20">
-                          <div className="flex items-center mb-4 gap-2">
-                            <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">DRAFT</div>
-                            <span className="text-xs text-blue-400 bg-blue-400/10 border border-blue-400/20 px-2 py-0.5 rounded-full">Generated</span>
-                          </div>
-                          <pre className='whitespace-pre-wrap text-xs text-neutral-100'>
-                            {`Hi John,\n\nGreat to hear from you! I've attached the project timeline we went over.\n\nLet me know if you have any questions or need any adjustments. Looking forward to moving this forward together.\n\nBest,\nMike`}
-                          </pre>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-4">
-                        <div className="text-sm text-gray-400">Write anything (optional)</div>
-                        <div className="text-sm text-gray-400 p-2 px-4 rounded-full bg-blue-500/20 text-[11px] hover:text-white font-semibold uppercase tracking-[0.2em]">Compose</div>
-                      </div>
+                    <div className="flex-1">
+                      <ComposerAIDemo />
                     </div>
                   </div>
                 </div>
@@ -314,7 +290,7 @@ export default function Home() {
               variants={fadeUp}
               className="text-3xl md:text-5xl font-bold text-white mb-4"
             >
-              Loved by thousands
+              Loved by professionals
             </motion.h2>
             <motion.p
               variants={fadeUp}
@@ -384,7 +360,7 @@ export default function Home() {
               variants={fadeUp}
               className="text-lg text-gray-400 max-w-lg mx-auto"
             >
-              Join 10,000+ professionals who reply to emails 10x faster with Composer AI
+              Join professionals who reply to emails 10x faster with Composer AI
             </motion.p>
             <motion.div variants={fadeUp}>
               <Button
@@ -403,9 +379,8 @@ export default function Home() {
             </motion.div>
             <motion.div variants={fadeUp} className="flex items-center justify-center gap-8 pt-4">
               {[
-                { icon: CheckCircle2, text: "Free 14-day trial" },
-                { icon: CheckCircle2, text: "No credit card" },
-                { icon: CheckCircle2, text: "Cancel anytime" }
+                { icon: CheckCircle2, text: "Free" },
+                { icon: CheckCircle2, text: "No credit card" }
               ].map((item, index) => (
                 <div key={index} className="flex items-center gap-2 text-sm text-gray-400">
                   <item.icon className="w-4 h-4 text-green-500" />
@@ -420,13 +395,10 @@ export default function Home() {
       {/* Footer */}
       <footer className="relative z-10 px-6 py-12 border-t border-gray-900">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-900/20">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
+          <div className="flex items-center gap-2">            
             <span className="font-semibold text-white">Composer AI</span>
           </div>
-          <p className="text-sm text-gray-500">© 2024 Composer AI. All rights reserved.</p>
+          <p className="text-sm text-gray-500">© {new Date().getFullYear()} Composer AI. All rights reserved.</p>
         </div>
       </footer>
     </div>
