@@ -50,3 +50,9 @@ export const SET_ONBOARDING_COMPLETED = gql`
   }
 `;
 
+export const DELETE_ACCOUNT = gql`
+  mutation DeleteAccount {
+    deleteAccount
+  }
+`;
+

@@ -8,8 +8,8 @@ import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
 import { apolloClient } from "./lib/apollo-client";
-import { ApolloProvider, useQuery } from "@apollo/client";
-import { GET_CONVERSATION_STATE_QUERY } from "./lib/graphql/composition";
+import { ApolloProvider, useQuery, useMutation } from "@apollo/client";
+import { GET_CONVERSATION_STATE_QUERY, COPY_DRAFT_MUTATION } from "./lib/graphql/composition";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 export const config: PlasmoCSConfig = {
@@ -89,6 +89,7 @@ const App = () => {
     skip: !threadId || !conversationId,
   });
 
+  const [copyDraft] = useMutation(COPY_DRAFT_MUTATION);
 
   useEffect(() => {
     if (!conversationId) {
@@ -556,12 +557,25 @@ const App = () => {
         setCopiedDraftId(null);
         copiedTimeoutRef.current = null;
       }, 2000);
+
+      // Track Copy event in Segment
+      try {
+        await copyDraft({
+          variables: {
+            threadId: threadId || null,
+            conversationId: conversationId || null,
+          },
+        });
+      } catch (trackError) {
+        // Don't fail the copy operation if tracking fails
+        console.error("Failed to track copy event:", trackError);
+      }
     } catch (error) {
       const messageText =
         error instanceof Error ? error.message : "Unable to copy draft. Please copy manually.";
       console.log(messageText);
     }
-  }, []);
+  }, [threadId, conversationId, copyDraft]);
 
   const handleConnectAccount = useCallback(() => {
     window.open(`${WEBSITE_URL}/dashboard`, "_blank");

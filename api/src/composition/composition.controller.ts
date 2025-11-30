@@ -12,6 +12,7 @@ import type { Request } from 'express';
 import { CompositionService } from './composition.service';
 import { CompositionStreamEvent } from './services/composition-agent.service';
 import { UserService } from '../user/user.service';
+import { SegmentService } from '../segment/segment.service';
 
 interface StreamComposeQuery {
   threadId?: string;
@@ -24,6 +25,7 @@ export class CompositionController {
   constructor(
     private readonly compositionService: CompositionService,
     private readonly userService: UserService,
+    private readonly segmentService: SegmentService,
   ) {}
 
   @Sse('stream')
@@ -44,6 +46,14 @@ export class CompositionController {
     }
 
     const normalizedUserPrompt = typeof userPrompt === 'string' ? userPrompt : '';
+
+    // Track streamCompose SSE event
+    this.segmentService.track(userId.toString(), 'Stream Compose SSE', {
+      threadId,
+      conversationId,
+      hasUserPrompt: !!normalizedUserPrompt,
+      accountId,
+    });
 
     return new Observable<MessageEvent>((subscriber) => {
       // Check usage limit before starting composition

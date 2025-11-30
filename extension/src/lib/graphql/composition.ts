@@ -14,3 +14,9 @@ export const GET_CONVERSATION_STATE_QUERY = gql`
   }
 `;
 
+export const COPY_DRAFT_MUTATION = gql`
+  mutation CopyDraft($threadId: String, $conversationId: String) {
+    copyDraft(threadId: $threadId, conversationId: $conversationId)
+  }
+`;
+

@@ -2,10 +2,14 @@ import { Resolver, Query, Mutation, Args, Context } from '@nestjs/graphql';
 import { UserService } from './user.service';
 import { User } from './entities/user.entity';
 import { UserDocument } from './schemas/user.schema';
+import { SegmentService } from '../segment/segment.service';
 
 @Resolver(() => User)
 export class UserResolver {
-  constructor(private userService: UserService) {}
+  constructor(
+    private userService: UserService,
+    private segmentService: SegmentService,
+  ) {}
 
   @Query(() => User, { nullable: true })
   async me(@Context() context: any): Promise<User | null> {
@@ -88,7 +92,24 @@ export class UserResolver {
       throw new Error('Failed to update onboarding status');
     }
 
+    // Track onboarding completion
+    if (onboardingCompleted) {
+      this.segmentService.track(updated._id.toString(), 'Onboarding Completed', {
+        email: updated.email,
+      });
+    }
+
     return this.mapUser(updated);
+  }
+
+  @Mutation(() => Boolean)
+  async deleteAccount(@Context() context: any): Promise<boolean> {
+    const betterAuthUser = context.req.user;
+    if (!betterAuthUser?.email) {
+      throw new Error('Unauthorized');
+    }
+
+    return await this.userService.deleteAccount(betterAuthUser.email);
   }
 
   private mapUser(userDoc: UserDocument): User {

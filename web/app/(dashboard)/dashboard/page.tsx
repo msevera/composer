@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SVGProps } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@apollo/client';
@@ -11,8 +11,6 @@ import {
   UPDATE_SEND_PRODUCT_UPDATES,
   SET_ONBOARDING_COMPLETED,
 } from '@/lib/graphql/user-queries';
-import { Home, Settings, UserRound } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 
 const EXTENSION_ORIGINS = process.env.NEXT_PUBLIC_CHROME_EXTENSION_ORIGINS;
 const extensionOrigins = (EXTENSION_ORIGINS || '')
@@ -36,29 +34,18 @@ const GmailIcon = (props: SVGProps<SVGSVGElement>) => (
 );
 
 
-type NavItem = {
-  label: string;
-  icon: LucideIcon;
-  badge?: string;
-};
-
 export default function DashboardPage() {
   const router = useRouter();
   const [message, setMessage] = useState<string>('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
   const [gmailAccounts, setGmailAccounts] = useState<Array<{ accountId: string; email?: string; scopes?: string[] }>>([]);
   const [isExtensionStepCompleted, setIsExtensionStepCompleted] = useState(false);
   const [isExtensionInstalled, setIsExtensionInstalled] = useState(false);
   const [isCheckingExtension, setIsCheckingExtension] = useState(true);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   const { data: userData, loading: userLoading, refetch: refetchUser } = useQuery(GET_ME, {
     client: apolloClient,
-    skip: !isAuthenticated,
   });
 
   const user = userData?.me;
@@ -73,13 +60,6 @@ export default function DashboardPage() {
       client: apolloClient,
     },
   );
-  const navItems: NavItem[] = useMemo(
-    () => [
-      { label: 'Home', icon: Home },
-      { label: 'Settings', icon: Settings },
-    ],
-    [],
-  );
 
   const requiredGmailScopes = useMemo(
     () => [
@@ -90,7 +70,7 @@ export default function DashboardPage() {
   );
 
   const refreshConnections = useCallback(async () => {
-    if (!isAuthenticated) {
+    if (!user) {
       setIsGmailConnected(false);
       setGmailAccounts([]);
       return;
@@ -119,7 +99,7 @@ export default function DashboardPage() {
     } finally {
       setIsCheckingGmail(false);
     }
-  }, [isAuthenticated, requiredGmailScopes]);
+  }, [user, requiredGmailScopes]);
 
 
   useEffect(() => {
@@ -159,44 +139,25 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const checkSession = useCallback(async () => {
-    try {
-      setIsCheckingAuth(true);
-      const session = await authClient.getSession();
-      if (session?.data?.user) {
-        setIsAuthenticated(true);
-        await refreshConnections();
-
-        const storedPreference = typeof window !== 'undefined'
-          ? window.localStorage.getItem('sendProductUpdates')
-          : null;
-        if (storedPreference !== null) {
-          const sendProductUpdates = storedPreference === 'true';
-          try {
-            await updateSendProductUpdates({ variables: { sendProductUpdates } });
-          } finally {
-            window.localStorage.removeItem('sendProductUpdates');
-          }
-        }
-      } else {
-        setIsAuthenticated(false);
-        router.replace('/signup');
-      }
-    } catch {
-      setIsAuthenticated(false);
-      router.replace('/signup');
-    } finally {
-      setIsCheckingAuth(false);
-    }
-  }, [refreshConnections, router, updateSendProductUpdates]);
-
   useEffect(() => {
-    checkSession();
-  }, [checkSession]);
+    if (user) {
+      refreshConnections();
+
+      const storedPreference = typeof window !== 'undefined'
+        ? window.localStorage.getItem('sendProductUpdates')
+        : null;
+      if (storedPreference !== null) {
+        const sendProductUpdates = storedPreference === 'true';
+        updateSendProductUpdates({ variables: { sendProductUpdates } }).finally(() => {
+          window.localStorage.removeItem('sendProductUpdates');
+        });
+      }
+    }
+  }, [user, refreshConnections, updateSendProductUpdates]);
 
   // Refresh connections when window regains focus (e.g., after OAuth popup)
   useEffect(() => {
-    if (typeof window === 'undefined' || !isAuthenticated) {
+    if (typeof window === 'undefined' || !user) {
       return;
     }
     const handleFocus = () => {
@@ -206,7 +167,7 @@ export default function DashboardPage() {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, [isAuthenticated, refreshConnections]);
+  }, [user, refreshConnections]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -219,19 +180,6 @@ export default function DashboardPage() {
     };
   }, [detectExtension]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setIsUserMenuOpen(false);
-      }
-    };
-    if (isUserMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isUserMenuOpen]);
 
   const handleConnectGmail = useCallback(async () => {
     setMessage('');
@@ -276,10 +224,6 @@ export default function DashboardPage() {
     }
   }, [user, setOnboardingCompleted, refetchUser]);
 
-  const handleSignOut = async () => {
-    await authClient.signOut();
-    router.replace('/signup');
-  };
 
   const onboardingSteps = useMemo(() => {
     return [
@@ -342,7 +286,7 @@ export default function DashboardPage() {
       },
       {
         id: 'start',
-        title: 'Start your free trial',
+        title: 'Start',
         description: 'Experience the full potential of Composer AI.',
         completed: Boolean(user?.onboardingCompleted),
         action: (
@@ -354,7 +298,7 @@ export default function DashboardPage() {
               : 'bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-500'
               }`}
           >
-            {user?.onboardingCompleted ? 'Ready to go!' : 'Start free trial'}
+            {'Ready to go!'}
           </button>
         ),
       },
@@ -375,96 +319,19 @@ export default function DashboardPage() {
   const dashboardGreeting =
     user?.name || (user?.email ? user.email.split('@')[0] : 'there');
 
-  const loadingState = isCheckingAuth || userLoading;
-
-  if (loadingState) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-white text-sm text-slate-500">
-        Loading dashboard…
-      </main>
-    );
-  }
-
-  if (!isAuthenticated) {
+  if (userLoading) {
     return null;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row">
-        <div className="w-full lg:w-72">
-          <aside className="fixed flex w-full flex-col justify-between rounded-3xl bg-white p-6 shadow-sm lg:w-72 lg:top-6 lg:h-[calc(100vh-3rem)]">
-            <div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-900">Composer AI</p>
-                  <p className="text-xs text-slate-500">Intelligent reply assistant</p>
-                </div>
-              </div>
-              <nav className="mt-10 space-y-2">
-                {navItems.map((item, index) => {
-                  const Icon = item.icon;
-                  const active = index === 0;
-                  return (
-                    <button
-                      key={item.label}
-                      className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold ${active
-                        ? 'bg-slate-50 text-slate-900'
-                        : 'text-slate-500 hover:bg-slate-50'
-                        }`}
-                    >
-                      <Icon className={`h-4 w-4 ${active ? 'text-slate-900' : 'text-slate-400'}`} />
-                      {item.label}
-                      {item.badge && (
-                        <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
-                          {item.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-            <div className="border-t border-slate-100 pt-6">
-              <div className="relative" ref={userMenuRef}>
-                <button
-                  onClick={() => setIsUserMenuOpen((prev) => !prev)}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-50"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
-                      <UserRound className="h-5 w-5 text-slate-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{user?.name ?? user?.email}</p>
-                      <p className="text-xs text-slate-500">{user?.email}</p>
-                    </div>
-                  </div>
-                  <span className="text-slate-400">⋯</span>
-                </button>
-                {isUserMenuOpen && (
-                  <div className="absolute right-0 bottom-[110%] w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
-                    <button
-                      onClick={handleSignOut}
-                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Log out
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
-        </div>
-        <section className="flex-1">
-          <div className="rounded-3xl bg-white p-6 shadow-sm lg:p-8">
+    <div className="rounded-3xl bg-white p-6 shadow-sm lg:p-8">
             <div className="mb-6 flex flex-col gap-2">
               <h1 className="text-3xl font-semibold text-slate-900">Dashboard</h1>
               <p className="text-sm text-slate-500">Welcome back, {dashboardGreeting}</p>
             </div>
 
             {message && (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="mt-4 mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 {message}
               </div>
             )}
@@ -480,7 +347,7 @@ export default function DashboardPage() {
                       Usage Statistics
                     </p>
                     <p className="text-sm text-slate-500">
-                      Email drafts generated: {user?.draftsUsed ?? 0} / {user?.maxDraftsAllowed ?? 10}
+                      Email drafts generated: {user?.draftsUsed ?? 0}
                     </p>
                   </div>
                   {(user?.draftsUsed ?? 0) >= (user?.maxDraftsAllowed ?? 10) && (
@@ -511,7 +378,7 @@ export default function DashboardPage() {
                       <div>
                         <p className="text-sm font-semibold text-slate-900">Gmail Accounts</p>
                         <p className="text-xs text-slate-500 mt-1">
-                          Connect multiple Gmail accounts to create responses with context from all your accounts.
+                          You can connect multiple Gmail accounts.
                         </p>
                       </div>
                       <button
@@ -587,9 +454,6 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        </section>
-      </div>
-    </div>
   );
 }
 

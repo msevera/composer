@@ -9,12 +9,13 @@ import { AuthModule } from "@thallesp/nestjs-better-auth";
 import { betterAuth } from 'better-auth';
 import { Connection } from 'mongoose';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
-import { IndexingModule } from './indexing/indexing.module';
 import { CompositionModule } from './composition/composition.module';
 import { bearer } from "better-auth/plugins";
 import * as jose from 'jose';
 import { listAccountsPlugin } from './auth/list-accounts.plugin';
 import { AppController } from './app.controller';
+import { SegmentModule } from './segment/segment.module';
+import { SegmentService } from './segment/segment.service';
 
 
 
@@ -37,10 +38,10 @@ import { AppController } from './app.controller';
       context: ({ req, res }) => ({ req, res }),
     }),
     UserModule,
-    IndexingModule,
     CompositionModule,
+    SegmentModule,
     AuthModule.forRootAsync({
-      useFactory: (connection: Connection, configService: ConfigService) => {
+      useFactory: (connection: Connection, configService: ConfigService, segmentService: SegmentService) => {
         const webOrigins = (configService.get<string>('WEB_ORIGINS') || '')
           .split(',')
           .map((origin) => origin.trim())
@@ -67,6 +68,24 @@ import { AppController } from './app.controller';
                   const user = jose.decodeJwt(account.idToken)
                   return { data: { ...account, email: user.email } };
                 },
+                after: async (account) => {
+                  // Track Gmail account connection if it's a Google account
+                  if (account && account.providerId === 'google' && account.userId) {
+                    try {
+                      // Get email from the database since it's stored there
+                      const accountDoc = await connection.db.collection('accounts').findOne({ id: account.id });
+                      const email = (accountDoc as any)?.email;
+                      
+                      segmentService.track(account.userId.toString(), 'Gmail Account Connected', {
+                        email: email,
+                        accountId: account.accountId,
+                        providerId: account.providerId,
+                      });
+                    } catch (error) {
+                      console.error('Failed to track Gmail connection:', error);
+                    }
+                  }
+                },
               },
             },
             user: {
@@ -81,6 +100,24 @@ import { AppController } from './app.controller';
                       sendProductUpdates: false
                     }
                   };
+                },
+                after: async (user) => {
+                  // Track new user account creation
+                  if (user && user.id) {
+                    try {
+                      segmentService.track(user.id.toString(), 'User Account Created', {
+                        email: user.email,
+                        name: user.name,
+                      });
+                      // Identify the user
+                      segmentService.identify(user.id.toString(), {
+                        email: user.email,
+                        name: user.name,
+                      });
+                    } catch (error) {
+                      console.error('Failed to track user creation:', error);
+                    }
+                  }
                 },
               },
             },
@@ -126,7 +163,7 @@ import { AppController } from './app.controller';
           auth
         };
       },
-      inject: [getConnectionToken(), ConfigService],
+      inject: [getConnectionToken(), ConfigService, SegmentService],
     }),
     GmailModule,
   ]
