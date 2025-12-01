@@ -111,7 +111,7 @@ export default function DashboardLayout({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xl font-semibold text-slate-900">Composer AI</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Intelligent reply assistant</p>
+                  <p className="text-xs text-slate-500 mt-0.5">AI-Powered Email Assistant</p>
                 </div>
               </div>
               <nav className="mt-10 space-y-2">
