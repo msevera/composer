@@ -45,9 +45,6 @@
     "host_permissions": [
       "http://localhost/*"
     ],
-    "permissions": [
-      "cookies"
-    ],
     "web_accessible_resources": [
       {
         "resources": [

@@ -172,13 +172,13 @@ export function AuthForm({ mode }: AuthFormProps) {
         {/* Footer */}
         <p className="mt-12 text-center text-xs text-slate-500">
           By continuing, you agree to our{' '}
-          <a href="#" className="text-blue-600 hover:text-blue-700">
+          <Link href="/terms-of-use" className="text-blue-600 hover:text-blue-700 underline">
             Terms
-          </a>{' '}
+          </Link>{' '}
           and{' '}
-          <a href="#" className="text-blue-600 hover:text-blue-700">
+          <Link href="/privacy-policy" className="text-blue-600 hover:text-blue-700 underline">
             Privacy Policy
-          </a>
+          </Link>
           .
         </p>
         </div>
