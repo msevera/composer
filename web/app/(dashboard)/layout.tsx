@@ -100,15 +100,18 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row">
+    <div className="min-h-screen overflow-hidden">
+      {/* Subtle gradient background */}
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-50/40 via-white to-violet-50/40 pointer-events-none" />
+      
+      <div className="relative flex min-h-screen flex-col gap-0 px-0 py-0 lg:flex-row">
         <div className="w-full lg:w-72">
-          <aside className="fixed flex w-full flex-col justify-between rounded-3xl bg-white p-6 shadow-sm lg:w-72 lg:top-6 lg:h-[calc(100vh-3rem)]">
+          <aside className="fixed flex w-full flex-col justify-between p-6 lg:w-72 lg:top-0 lg:h-screen border-r border-slate-200/20">
             <div>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-900">Composer AI</p>
-                  <p className="text-xs text-slate-500">Intelligent reply assistant</p>
+                  <p className="text-xl font-semibold text-slate-900">Composer AI</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Intelligent reply assistant</p>
                 </div>
               </div>
               <nav className="mt-10 space-y-2">
@@ -119,15 +122,15 @@ export default function DashboardLayout({
                     <button
                       key={item.label}
                       onClick={() => router.push(item.href)}
-                      className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold ${active
-                        ? 'bg-slate-50 text-slate-900'
-                        : 'text-slate-500 hover:bg-slate-50'
+                      className={`group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-all duration-200 ${active
+                        ? 'bg-gradient-to-r from-blue-50 to-violet-50 text-slate-900 border border-blue-100/50'
+                        : 'text-slate-500 hover:bg-slate-100/60 hover:text-slate-700'
                         }`}
                     >
-                      <Icon className={`h-4 w-4 ${active ? 'text-slate-900' : 'text-slate-400'}`} />
+                      <Icon className={`h-4 w-4 transition-colors duration-200 ${active ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'}`} />
                       {item.label}
                       {item.badge && (
-                        <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                        <span className="ml-auto rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
                           {item.badge}
                         </span>
                       )}
@@ -136,15 +139,15 @@ export default function DashboardLayout({
                 })}
               </nav>
             </div>
-            <div className="border-t border-slate-100 pt-6">
+            <div className="border-t border-slate-200/30 pt-6 mt-auto">
               <div className="relative" ref={userMenuRef}>
                 <button
                   onClick={() => setIsUserMenuOpen((prev) => !prev)}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-50"
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/50 bg-white/50 backdrop-blur-sm px-4 py-3 text-left hover:bg-slate-50/50 transition-all duration-200"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
-                      <UserRound className="h-5 w-5 text-slate-500" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-white text-sm font-semibold shadow-lg shadow-blue-500/20">
+                      {(user?.name ?? user?.email)?.charAt(0).toUpperCase()}
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{user?.name ?? user?.email}</p>
@@ -154,19 +157,19 @@ export default function DashboardLayout({
                   <span className="text-slate-400">⋯</span>
                 </button>
                 {isUserMenuOpen && (
-                  <div className="absolute right-0 bottom-[110%] w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                  <div className="absolute right-0 bottom-[110%] w-48 rounded-2xl border border-slate-200/50 bg-white/95 backdrop-blur-sm p-2 shadow-xl shadow-black/10">
                     <button
                       onClick={() => {
                         setIsUserMenuOpen(false);
                         router.push('/profile');
                       }}
-                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                     >
                       Account
                     </button>
                     <button
                       onClick={handleSignOut}
-                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                     >
                       Log out
                     </button>
@@ -176,8 +179,10 @@ export default function DashboardLayout({
             </div>
           </aside>
         </div>
-        <section className="flex-1">
-          {children}
+        <section className="flex-1 relative z-10 w-full">
+          <div className="p-6 lg:p-8 max-w-4xl mx-auto">
+            {children}
+          </div>
         </section>
       </div>
     </div>

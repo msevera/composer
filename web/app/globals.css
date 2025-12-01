@@ -14,7 +14,7 @@
   }
 
   body {
-    @apply min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-50 text-slate-900 antialiased;
+    @apply min-h-screen bg-gradient-to-br from-blue-50/30 via-white to-violet-50/30 text-slate-900 antialiased;
   }
 
   a {

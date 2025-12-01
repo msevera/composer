@@ -52,11 +52,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     }
   };
 
-  const alertClasses = message
-    ? message.toLowerCase().includes('error')
-      ? 'border-red-200 bg-red-50 text-red-700'
-      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-    : '';
+  const isError = message && message.toLowerCase().includes('error');
 
   const isSignup = mode === 'signup';
   const title = isSignup ? 'Start for free' : 'Welcome back';
@@ -65,16 +61,19 @@ export function AuthForm({ mode }: AuthFormProps) {
     : 'Sign in to your Composer AI account';
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-hidden">
+      {/* Subtle gradient background */}
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-50/40 via-white to-violet-50/40 pointer-events-none" />
+      
       {/* Logo - Top Left (Fixed to viewport) */}
       <div className="fixed left-6 top-6 z-10">
-        <h1 className="text-2xl font-serif text-slate-900">Composer AI</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Composer AI</h1>
       </div>
 
       {/* Main Content */}
-      <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-12">
+      <div className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 py-12">
         <div className="flex flex-1 flex-col justify-center">
-        <h2 className="text-3xl font-bold text-slate-900">{title}</h2>
+        <h2 className="text-3xl md:text-4xl font-bold text-slate-900">{title}</h2>
         <p className="mt-2 text-base text-slate-600">{subtitle}</p>
 
         {/* Trust Indicator - Only show on signup */}
@@ -94,11 +93,11 @@ export function AuthForm({ mode }: AuthFormProps) {
           <button
             onClick={handleGoogleSignIn}
             disabled={isSigningIn}
-            className="flex w-full items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-3 rounded-xl bg-white border border-slate-200/50 px-5 py-3.5 text-sm font-semibold text-slate-900 shadow-lg shadow-black/5 hover:shadow-xl hover:shadow-black/10 transition-all duration-200 hover:bg-white/80 backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg"
           >
             {isSigningIn ? (
               <>
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-400 border-t-transparent"></div>
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"></div>
                 <span>Signing in...</span>
               </>
             ) : (
@@ -129,15 +128,15 @@ export function AuthForm({ mode }: AuthFormProps) {
 
         {/* Product Updates Checkbox - Only show on signup */}
         {isSignup && (
-          <div className="mt-6 flex items-start gap-2">
+          <div className="mt-6 flex items-start gap-3 rounded-xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 shadow-sm">
             <input
               type="checkbox"
               id="product-updates"
               checked={sendProductUpdates}
               onChange={(e) => setSendProductUpdates(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 focus:ring-offset-0"
             />
-            <label htmlFor="product-updates" className="text-sm text-slate-600">
+            <label htmlFor="product-updates" className="text-sm text-slate-600 leading-relaxed">
               Send me product updates and tips to get the most out of Composer AI
             </label>
           </div>
@@ -148,14 +147,14 @@ export function AuthForm({ mode }: AuthFormProps) {
           {isSignup ? (
             <>
               Already have an account?{' '}
-              <Link href="/login" className="font-medium text-blue-600 hover:text-blue-700">
+              <Link href="/login" className="font-semibold text-blue-600 hover:text-blue-700 transition-colors">
                 Log in
               </Link>
             </>
           ) : (
             <>
               Don&apos;t have an account?{' '}
-              <Link href="/signup" className="font-medium text-blue-600 hover:text-blue-700">
+              <Link href="/signup" className="font-semibold text-blue-600 hover:text-blue-700 transition-colors">
                 Sign up
               </Link>
             </>
@@ -164,7 +163,11 @@ export function AuthForm({ mode }: AuthFormProps) {
 
         {/* Error Message */}
         {message && (
-          <div className={`mt-4 rounded-lg border px-4 py-3 text-sm font-medium ${alertClasses}`}>
+          <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm ${
+            isError
+              ? 'border-red-200/50 bg-red-50/80 backdrop-blur-sm text-red-700'
+              : 'border-emerald-200/50 bg-emerald-50/80 backdrop-blur-sm text-emerald-700'
+          }`}>
             {message}
           </div>
         )}
@@ -172,11 +175,11 @@ export function AuthForm({ mode }: AuthFormProps) {
         {/* Footer */}
         <p className="mt-12 text-center text-xs text-slate-500">
           By continuing, you agree to our{' '}
-          <Link href="/terms-of-use" className="text-blue-600 hover:text-blue-700 underline">
+          <Link href="/terms-of-use" className="font-medium text-blue-600 hover:text-blue-700 underline transition-colors">
             Terms
           </Link>{' '}
           and{' '}
-          <Link href="/privacy-policy" className="text-blue-600 hover:text-blue-700 underline">
+          <Link href="/privacy-policy" className="font-medium text-blue-600 hover:text-blue-700 underline transition-colors">
             Privacy Policy
           </Link>
           .
