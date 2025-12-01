@@ -89,6 +89,12 @@ export default function Home() {
               <Button
                 size="lg"
                 className="h-14 px-8 text-base font-medium bg-white hover:bg-gray-100 text-gray-900 border border-transparent shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] transition-all duration-300 rounded-full group"
+                onClick={() => {
+                  const webUrl = process.env.NEXT_PUBLIC_WEB_URL;
+                  if (webUrl) {
+                    window.location.href = webUrl;
+                  }
+                }}
               >
                 <svg viewBox="0 0 24 24" className="w-5 h-5 mr-3">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -366,6 +372,12 @@ export default function Home() {
               <Button
                 size="lg"
                 className="h-14 px-8 text-base font-medium bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-[0_0_30px_rgba(79,70,229,0.3)] hover:shadow-[0_0_40px_rgba(79,70,229,0.4)] transition-all duration-300 rounded-full group"
+                onClick={() => {
+                  const webUrl = process.env.NEXT_PUBLIC_WEB_URL;
+                  if (webUrl) {
+                    window.location.href = webUrl;
+                  }
+                }}
               >
                 <svg viewBox="0 0 24 24" className="w-5 h-5 mr-3">
                   <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

@@ -59,9 +59,9 @@ export function AuthForm({ mode }: AuthFormProps) {
     : '';
 
   const isSignup = mode === 'signup';
-  const title = isSignup ? 'Start a free trial' : 'Welcome back';
+  const title = isSignup ? 'Start for free' : 'Welcome back';
   const subtitle = isSignup
-    ? 'Join thousands of teams already using Composer AI'
+    ? 'Join teams already using Composer AI'
     : 'Sign in to your Composer AI account';
 
   return (
