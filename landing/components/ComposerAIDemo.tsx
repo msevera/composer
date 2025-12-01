@@ -1,6 +1,5 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 const USER_INPUT = 'Hey John, of course!';
 const DRAFT_TEXT = `Hi John,\n\nGreat to hear from you! I've attached the project timeline we went over.\n\nLet me know if you have any questions or need any adjustments. Looking forward to moving this forward together.\n\nBest,\nMike`;
@@ -145,101 +144,56 @@ export default function ComposerAIDemo() {
         </div>
         <div className="flex flex-col gap-2">
           {/* User Message Bubble Section */}
-          <AnimatePresence>
-            {messageBubbleText && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="self-end mb-2"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">You</div>
-                </div>
-                <div className="whitespace-pre-wrap text-xs text-neutral-100 rounded-xl p-4 border border-blue-500/20">
-                  {messageBubbleText}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {messageBubbleText && (
+            <div className="self-end mb-2">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">You</div>
+              </div>
+              <div className="whitespace-pre-wrap text-xs text-neutral-100 rounded-xl p-4 border border-blue-500/20">
+                {messageBubbleText}
+              </div>
+            </div>
+          )}
 
           {/* Draft Section - Only appears after compose button click */}
-          <AnimatePresence>
-            {showDraftBubble && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="rounded-xl p-4 border border-blue-500/20 min-h-[8rem]"
-              >
-                <div className="flex items-center mb-4 gap-2">
-                  <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">DRAFT</div>
-                  <AnimatePresence mode="wait">
-                    {showDraft && (
-                      <motion.span
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        className="text-xs text-blue-400 bg-blue-400/10 border border-blue-400/20 px-2 py-0.5 rounded-full"
-                      >
-                        Generated
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
+          {showDraftBubble && (
+            <div className="rounded-xl p-4 border border-blue-500/20 min-h-[8rem]">
+              <div className="flex items-center mb-4 gap-2">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">DRAFT</div>
+                {showDraft && (
+                  <span className="text-xs text-blue-400 bg-blue-400/10 border border-blue-400/20 px-2 py-0.5 rounded-full">
+                    Generated
+                  </span>
+                )}
+              </div>
+
+              {showLoader ? (
+                <div className="space-y-3">
+                  {/* Skeleton lines that mimic the draft message structure */}
+                  {[
+                    { width: '60%' }, // "Hi John,"
+                    // { width: '100%' }, // "Hi John,"
+                    { width: '85%' }, // "Great to hear from you! I've attached..."
+                    // { width: '100%' }, // "Hi John,"
+                    { width: '90%' }, // "Let me know if you have any questions..."
+
+                    { width: '40%' }, // "Best,"
+                    { width: '25%' }, // "Mike"
+                  ].map((line, index) => (
+                    <div
+                      key={index}
+                      className="h-3 rounded bg-gray-700/50"
+                      style={{ width: line.width }}
+                    />
+                  ))}
                 </div>
-
-                <AnimatePresence mode="wait">
-                  {showLoader ? (
-                    <motion.div
-                      key="loader"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="space-y-3"
-                    >
-                      {/* Skeleton lines that mimic the draft message structure */}
-                      {[
-                        { width: '60%' }, // "Hi John,"
-                        // { width: '100%' }, // "Hi John,"
-                        { width: '85%' }, // "Great to hear from you! I've attached..."
-                        // { width: '100%' }, // "Hi John,"
-                        { width: '90%' }, // "Let me know if you have any questions..."
-
-                        { width: '40%' }, // "Best,"
-                        { width: '25%' }, // "Mike"
-                      ].map((line, index) => (
-                        <motion.div
-                          key={index}
-                          className="h-3 rounded bg-gray-700/50"
-                          style={{ width: line.width }}
-                          animate={{
-                            opacity: [0.5, 0.8, 0.5],
-                          }}
-                          transition={{
-                            duration: 1.5,
-                            repeat: Infinity,
-                            delay: index * 0.1,
-                            ease: 'easeInOut',
-                          }}
-                        />
-                      ))}
-                    </motion.div>
-                  ) : showDraft ? (
-                    <motion.pre
-                      key="draft"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: DRAFT_FADE_DURATION / 1000 }}
-                      className="whitespace-pre-wrap text-xs text-neutral-100"
-                    >
-                      {DRAFT_TEXT}
-                    </motion.pre>
-                  ) : null}
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              ) : showDraft ? (
+                <pre className="whitespace-pre-wrap text-xs text-neutral-100">
+                  {DRAFT_TEXT}
+                </pre>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
       {/* Bottom Section with Input Field and Compose Button */}
@@ -254,22 +208,9 @@ export default function ComposerAIDemo() {
             {inputText}
           </div>
         </div>
-        <motion.div
-          className="text-sm text-gray-400 p-2 px-4 rounded-full bg-blue-500/20 text-[11px] font-semibold uppercase tracking-[0.2em] ml-4"
-          animate={{
-            scale: showComposeBlink ? [1, 1.05, 1] : 1,
-            opacity: showComposeBlink ? [1, 0.7, 1] : 1,
-            backgroundColor: showComposeBlink
-              ? ['rgba(59, 130, 246, 0.2)', 'rgba(59, 130, 246, 0.4)', 'rgba(59, 130, 246, 0.2)']
-              : 'rgba(59, 130, 246, 0.2)',
-          }}
-          transition={{
-            duration: COMPOSE_BLINK_DURATION / 1000,
-            times: [0, 0.5, 1],
-          }}
-        >
+        <div className="text-sm text-gray-400 p-2 px-4 rounded-full bg-blue-500/20 text-[11px] font-semibold uppercase tracking-[0.2em] ml-4">
           Compose
-        </motion.div>
+        </div>
       </div>
     </div>
   );
