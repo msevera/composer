@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Zap, Clock, Sparkles, Shield, ArrowRight, CheckCircle2, Star } from 'lucide-react';
+import { Zap, Sparkles, Shield, ArrowRight, CheckCircle2, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ComposerAIDemo from '@/components/ComposerAIDemo';
 
@@ -302,7 +302,7 @@ export default function Home() {
               variants={fadeUp}
               className="text-lg text-gray-400 max-w-xl mx-auto"
             >
-              Join professionals who've transformed their email workflow
+              Join professionals who&apos;ve transformed their email workflow
             </motion.p>
           </motion.div>
 
@@ -328,7 +328,7 @@ export default function Home() {
                     <Star key={i} className="w-4 h-4 fill-amber-500 text-amber-500" />
                   ))}
                 </div>
-                <p className="text-gray-300 mb-6 leading-relaxed">"{testimonial.quote}"</p>
+                <p className="text-gray-300 mb-6 leading-relaxed">&ldquo;{testimonial.quote}&rdquo;</p>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center text-white font-medium text-sm shadow-lg shadow-blue-900/20">
                     {testimonial.avatar}

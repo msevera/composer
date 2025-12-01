@@ -550,7 +550,7 @@ function OnboardingTimeline({ steps }: { steps: OnboardingStep[] }) {
           Complete your setup
         </h2>
         <p className="text-sm text-slate-500">
-          Unlock Composer AI's full potential in a few simple steps.
+          Unlock Composer AI&apos;s full potential in a few simple steps.
         </p>
       </div>
 
