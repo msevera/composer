@@ -94,7 +94,7 @@ import { SegmentService } from './segment/segment.service';
                   return {
                     data: {
                       ...user,
-                      maxDraftsAllowed: 10,
+                      maxDraftsAllowed: 50,
                       draftsUsed: 0,
                       onboardingCompleted: false,
                       sendProductUpdates: false
