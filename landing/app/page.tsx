@@ -90,7 +90,7 @@ export default function Home() {
                 size="lg"
                 className="h-14 px-8 text-base font-medium bg-white hover:bg-gray-100 text-gray-900 border border-transparent shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] transition-all duration-300 rounded-full group"
                 onClick={() => {
-                  const webUrl = process.env.NEXT_PUBLIC_WEB_URL;
+                  const webUrl = `${process.env.NEXT_PUBLIC_WEB_URL}/login`;
                   if (webUrl) {
                     window.location.href = webUrl;
                   }
@@ -373,7 +373,7 @@ export default function Home() {
                 size="lg"
                 className="h-14 px-8 text-base font-medium bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-[0_0_30px_rgba(79,70,229,0.3)] hover:shadow-[0_0_40px_rgba(79,70,229,0.4)] transition-all duration-300 rounded-full group"
                 onClick={() => {
-                  const webUrl = process.env.NEXT_PUBLIC_WEB_URL;
+                  const webUrl = `${process.env.NEXT_PUBLIC_WEB_URL}/login`;
                   if (webUrl) {
                     window.location.href = webUrl;
                   }
@@ -410,7 +410,21 @@ export default function Home() {
           <div className="flex items-center gap-2">            
             <span className="font-semibold text-white">Composer AI</span>
           </div>
-          <p className="text-sm text-gray-500">© {new Date().getFullYear()} Composer AI. All rights reserved.</p>
+          <div className="flex items-center gap-6">
+            <a 
+              href={`${process.env.NEXT_PUBLIC_WEB_URL || ''}/privacy-policy`}
+              className="text-sm text-gray-400 hover:text-white transition-colors"
+            >
+              Privacy Policy
+            </a>
+            <a 
+              href={`${process.env.NEXT_PUBLIC_WEB_URL || ''}/terms-of-use`}
+              className="text-sm text-gray-400 hover:text-white transition-colors"
+            >
+              Terms of Use
+            </a>
+            <p className="text-sm text-gray-500">© {new Date().getFullYear()} Composer AI. All rights reserved.</p>
+          </div>
         </div>
       </footer>
     </div>
