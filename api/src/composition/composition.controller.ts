@@ -56,6 +56,18 @@ export class CompositionController {
     });
 
     return new Observable<MessageEvent>((subscriber) => {
+      const abortController = new AbortController();
+      let compositionPromise: Promise<void> | null = null;
+
+      // Listen for client disconnection
+      req.on('close', () => {
+        abortController.abort();
+      });
+
+      req.on('aborted', () => {
+        abortController.abort();
+      });
+
       // Check usage limit before starting composition
       this.userService
         .checkDraftLimit(userId.toString())
@@ -80,12 +92,20 @@ export class CompositionController {
             return;
           }
 
-          const abortController = new AbortController();
+          // Check if already aborted
+          if (abortController.signal.aborted) {
+            return;
+          }
+
           const writer = (event: CompositionStreamEvent) => {
+            // Don't send events if aborted
+            if (abortController.signal.aborted) {
+              return;
+            }
             subscriber.next({ data: event });
           };
 
-          this.compositionService
+          compositionPromise = this.compositionService
             .composeDraftStreamWithAgent(
               userId.toString(),
               { threadId, userPrompt: normalizedUserPrompt, conversationId, accountId },
@@ -93,27 +113,42 @@ export class CompositionController {
               abortController.signal,
             )
             .then((result) => {
-              subscriber.next({ data: { type: 'final', payload: result } });
-              subscriber.complete();
+              if (!abortController.signal.aborted) {
+                subscriber.next({ data: { type: 'final', payload: result } });
+                subscriber.complete();
+              }
             })
             .catch((error) => {
+              // Don't send error if aborted (client disconnected)
+              if (abortController.signal.aborted) {
+                return;
+              }
+              // Check if it's an AbortError
+              if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+                // Client disconnected, just complete silently
+                subscriber.complete();
+                return;
+              }
               subscriber.next({ data: { type: 'error', message: error instanceof Error ? error.message : String(error) } });
               subscriber.complete();
             });
-
-          return () => {
-            abortController.abort();
-          };
         })
         .catch((error) => {
-          subscriber.next({
-            data: {
-              type: 'error',
-              message: error instanceof Error ? error.message : String(error),
-            },
-          });
-          subscriber.complete();
+          if (!abortController.signal.aborted) {
+            subscriber.next({
+              data: {
+                type: 'error',
+                message: error instanceof Error ? error.message : String(error),
+              },
+            });
+            subscriber.complete();
+          }
         });
+
+      // Cleanup function - called when Observable is unsubscribed
+      return () => {
+        abortController.abort();
+      };
     });
   }
 }

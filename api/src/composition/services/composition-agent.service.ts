@@ -62,7 +62,7 @@ interface ToolExecutionResult {
   vectorSummary?: string;
 }
 
-type ToolHandler = (args: Record<string, any>, state: AgentStateType) => Promise<ToolExecutionResult>;
+type ToolHandler = (args: Record<string, any>, state: AgentStateType, signal?: AbortSignal) => Promise<ToolExecutionResult>;
 
 interface AgentToolDefinition {
   metadata: ReturnType<typeof tool>;
@@ -191,6 +191,7 @@ export class CompositionAgentService implements OnModuleDestroy {
         configurable: {
           thread_id: conversationId,
           writer: execConfig.writer,
+          signal: execConfig.signal,
         },
         signal: execConfig.signal,
       },
@@ -278,7 +279,12 @@ export class CompositionAgentService implements OnModuleDestroy {
     ];
   }
 
-  private async loadThreadNode(state: AgentStateType) {
+  private async loadThreadNode(state: AgentStateType, config?: { configurable?: { signal?: AbortSignal } }) {
+    // Check if aborted
+    const signal = config?.configurable?.signal;
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
     if (!state.userId || !state.threadId) {
       throw new Error('User ID and thread ID are required before loading the thread.');
     }
@@ -302,7 +308,12 @@ export class CompositionAgentService implements OnModuleDestroy {
     }
   }
 
-  private async agentNode(state: AgentStateType) {
+  private async agentNode(state: AgentStateType, config?: { configurable?: { signal?: AbortSignal } }) {
+    // Check if aborted
+    const signal = config?.configurable?.signal;
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
     const instructionMessage = new SystemMessage(this.buildAgentLoopPrompt(state));
     const history = state.messages ?? [];
     const aiResponse = await this.reasoningModel.invoke(
@@ -312,6 +323,7 @@ export class CompositionAgentService implements OnModuleDestroy {
           threadId: state.threadId ?? undefined,
           userId: state.userId ?? undefined,
         },
+        signal,
       },
     );
     return {
@@ -321,7 +333,13 @@ export class CompositionAgentService implements OnModuleDestroy {
     };
   }
 
-  private async toolsNode(state: AgentStateType) {
+  private async toolsNode(state: AgentStateType, config?: { configurable?: { signal?: AbortSignal } }) {
+    // Check if aborted
+    const signal = config?.configurable?.signal;
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
+
     const lastAI = this.extractLastAIMessage(state.messages);
     if (!lastAI?.tool_calls?.length) {
       return {
@@ -331,6 +349,11 @@ export class CompositionAgentService implements OnModuleDestroy {
 
     const results = await Promise.all(
       lastAI.tool_calls.map(async (call) => {
+        // Check abort signal before each tool execution
+        if (signal?.aborted) {
+          throw new Error('Operation aborted');
+        }
+
         const handler = this.toolHandlers[call.name];
         if (!handler) {
           const unknownMessage = `Unknown tool "${call.name}" requested.`;
@@ -342,7 +365,11 @@ export class CompositionAgentService implements OnModuleDestroy {
 
         try {
           this.emitEvent({ type: 'tool_start', tool: call.name });
-          const result = await handler(call.args ?? {}, state);
+          const result = await handler(call.args ?? {}, state, signal);
+          // Check again after tool execution
+          if (signal?.aborted) {
+            throw new Error('Operation aborted');
+          }
           this.emitEvent({ type: 'tool_end', tool: call.name });
           return {
             toolMessage: new ToolMessage({ content: result.message, tool_call_id: call.id }),
@@ -352,6 +379,10 @@ export class CompositionAgentService implements OnModuleDestroy {
             vectorSummary: result.vectorSummary,
           };
         } catch (error) {
+          // If aborted, rethrow
+          if (signal?.aborted || error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'))) {
+            throw error;
+          }
           const message = error instanceof Error ? error.message : String(error);
           this.emitEvent({ type: 'tool_error', tool: call.name, message });
           return {
@@ -389,7 +420,13 @@ export class CompositionAgentService implements OnModuleDestroy {
     };
   }
 
-  private async composeDraftNode(state: AgentStateType) {
+  private async composeDraftNode(state: AgentStateType, config?: { configurable?: { signal?: AbortSignal } }) {
+    // Check if aborted
+    const signal = config?.configurable?.signal;
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
+
     if (!state.threadSummary) {
       throw new Error('Thread summary missing prior to composing draft.');
     }
@@ -408,7 +445,7 @@ export class CompositionAgentService implements OnModuleDestroy {
       userPrompt: state.latestUserPrompt,
       userId: state.userId,
       emailExamples: state.emailExamples ?? [],
-    }, Boolean(state.streamingEnabled));
+    }, Boolean(state.streamingEnabled), signal);
     
     // Increment usage counter after successful draft generation
     if (state.userId) {
@@ -458,7 +495,10 @@ export class CompositionAgentService implements OnModuleDestroy {
     ].join('\n');
   }
 
-  private async handleSearchTool(args: { query?: string }, state: AgentStateType): Promise<ToolExecutionResult> {
+  private async handleSearchTool(args: { query?: string }, state: AgentStateType, signal?: AbortSignal): Promise<ToolExecutionResult> {
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
     if (!state.userId) {
       throw new Error('User context is missing for search.');
     }
@@ -490,7 +530,11 @@ export class CompositionAgentService implements OnModuleDestroy {
   private async handleCalendarTool(
     args: { lookAheadDays?: number },
     state: AgentStateType,
+    signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
     if (!state.userId) {
       throw new Error('User context is missing for calendar lookup.');
     }
@@ -515,7 +559,11 @@ export class CompositionAgentService implements OnModuleDestroy {
   private async handleVectorTool(
     args: { topic?: string },
     _state: AgentStateType,
+    signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
     const topic = args.topic || 'general';
     const summary = `Vector search placeholder invoked for topic: ${topic}.`;
     return {
@@ -525,7 +573,7 @@ export class CompositionAgentService implements OnModuleDestroy {
     };
   }
 
-  private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean) {
+  private async generateDraft(context: ComposeDraftContext, streamingEnabled: boolean, signal?: AbortSignal) {
     const user = await this.userService.findById(context.userId);
     const contextSections = [
       context.threadSummary && `<email_thread_summary>\n${context.threadSummary}\n<email_thread_summary>`,
@@ -567,21 +615,37 @@ export class CompositionAgentService implements OnModuleDestroy {
     ];
 
     if (streamingEnabled) {
+      // Check abort before starting
+      if (signal?.aborted) {
+        throw new Error('Operation aborted');
+      }
       this.emitEvent({ type: 'draft_stream_started' });
       let accumulated = '';
-      const stream = await this.draftCreatorModel.stream(promptMessages);
+      const stream = await this.draftCreatorModel.stream(promptMessages, { signal });
       for await (const chunk of stream) {
+        // Check abort during streaming
+        if (signal?.aborted) {
+          throw new Error('Operation aborted');
+        }
         const chunkText = this.renderMessageContent(chunk);
         if (chunkText) {
           accumulated += chunkText;
           this.emitEvent({ type: 'draft_chunk', content: chunkText });
         }
       }
+      // Final check before finishing
+      if (signal?.aborted) {
+        throw new Error('Operation aborted');
+      }
       this.emitEvent({ type: 'draft_stream_finished', draft: accumulated });
       return accumulated;
     }
 
-    const response = await this.draftCreatorModel.invoke(promptMessages);
+    // Check abort before invoking
+    if (signal?.aborted) {
+      throw new Error('Operation aborted');
+    }
+    const response = await this.draftCreatorModel.invoke(promptMessages, { signal });
     return this.renderMessageContent(response);
   }
 

@@ -38,6 +38,7 @@ const App = () => {
   const { data: session, isPending } = authClient.useSession();
   const [message, setMessage] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const isRunningRef = useRef(false);
   const [agentMessages, setAgentMessages] = useState<
     Array<{ id: string; text: string; kind: "user" | "draft" }>
   >([]);
@@ -47,7 +48,7 @@ const App = () => {
   const currentGmailEmail = useCurrentGmailAccountEmail();
   const [isMinimized, setIsMinimized] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const currentDraftMessageIdRef = useRef<string | null>(null);
   const lastStreamedDraftIdRef = useRef<string | null>(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -243,9 +244,9 @@ const App = () => {
   }, []);
 
   const closeEventSource = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
   }, []);
 
@@ -282,6 +283,10 @@ const App = () => {
 
   const handleStreamEvent = useCallback(
     (event: ComposeStreamEvent) => {
+      // Ignore events if we're not running (stream was stopped)
+      if (!isRunningRef.current) {
+        return;
+      }
       switch (event.type) {
         case "activity":
           setDraftIndicator(event.message);
@@ -380,12 +385,14 @@ const App = () => {
           break;
         case "error":
           console.error(event.message);
+          isRunningRef.current = false;
           closeEventSource();
           setDraftIndicator(null);
           setErrorMessages((prev) => [...prev, event]);
           setIsRunning(false);
           break;
         case "final":
+          isRunningRef.current = false;
           closeEventSource();
           setDraftIndicator(null);
           setIsRunning(false);
@@ -451,8 +458,13 @@ const App = () => {
         }
       }
 
+      // Create an AbortController to allow cancellation
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       fetchEventSource(`${COMPOSITION_STREAM_URL}?${params.toString()}`, {
         headers,
+        signal: abortController.signal,
         onmessage(event) {
           try {
             const payload = JSON.parse(event.data) as ComposeStreamEvent;
@@ -462,6 +474,7 @@ const App = () => {
           }
         },
         onerror() {
+          isRunningRef.current = false;
           closeEventSource();
           setIsRunning(false);
           console.error("Stream interrupted. Please try again.");
@@ -485,6 +498,7 @@ const App = () => {
       }
 
       setIsRunning(true);
+      isRunningRef.current = true;
       setDraftIndicator("Starting agent…");
       if (copiedTimeoutRef.current) {
         clearTimeout(copiedTimeoutRef.current);
@@ -499,9 +513,17 @@ const App = () => {
   );
 
   const handleStop = useCallback(() => {
+    isRunningRef.current = false;
     closeEventSource();
     setIsRunning(false);
     setDraftIndicator(null);
+    // Clear any in-progress draft message
+    if (currentDraftMessageIdRef.current) {
+      setAgentMessages((prev) =>
+        prev.filter((entry) => entry.id !== currentDraftMessageIdRef.current)
+      );
+      currentDraftMessageIdRef.current = null;
+    }
     console.log("Agent stopped");
   }, [closeEventSource]);
 
@@ -515,6 +537,7 @@ const App = () => {
 
   const handleReset = useCallback(() => {
     if (isRunning) {
+      isRunningRef.current = false;
       closeEventSource();
       setIsRunning(false);
     }
