@@ -43,7 +43,7 @@
   },
   "manifest": {
     "host_permissions": [
-      "http://localhost/*"
+      "$PLASMO_PUBLIC_API_URL/*"
     ],
     "web_accessible_resources": [
       {
@@ -51,7 +51,7 @@
           "manifest.json"
         ],
         "matches": [
-          "http://localhost/*"
+          "$PLASMO_PUBLIC_WEB_URL/*"
         ]
       }
     ]

@@ -3,7 +3,7 @@ import { setContext } from "@apollo/client/link/context";
 import { authClient } from './better-auth-client';
 
 const httpLink = new HttpLink({
-  uri: process.env.PLASMO_PUBLIC_API_URL,
+  uri: `${process.env.PLASMO_PUBLIC_API_URL}/graphql`,
 });
 
 const authLink = setContext(async (_, { headers }) => {

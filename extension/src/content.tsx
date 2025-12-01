@@ -25,10 +25,10 @@ export const getStyle = () => {
 
 const MIN_TEXTAREA_HEIGHT = 26;
 const GRAPHQL_ENDPOINT =
-  process.env.PLASMO_PUBLIC_API_URL ?? "http://localhost:4000/graphql";
+  `${process.env.PLASMO_PUBLIC_API_URL}/graphql`;
 const API_BASE_URL = GRAPHQL_ENDPOINT.replace(/\/graphql$/i, "");
 const COMPOSITION_STREAM_URL = `${API_BASE_URL}/composition/stream`;
-const WEBSITE_URL = process.env.PLASMO_PUBLIC_WEBSITE_URL || "http://localhost:3000";
+const WEBSITE_URL = process.env.PLASMO_PUBLIC_WEB_URL;
 const requiredGmailScopes = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -44,6 +44,7 @@ const App = () => {
   const [draftIndicator, setDraftIndicator] = useState<string | null>(null);
   const isThreadView = useIsGmailThreadView();
   const gmailThreadId = useGmailThreadId();
+  const currentGmailEmail = useCurrentGmailAccountEmail();
   const [isMinimized, setIsMinimized] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -126,18 +127,17 @@ const App = () => {
       }
 
       try {
-        const currentGmailEmail = getCurrentGmailAccountEmail();
         const accounts = await authClient.listAccounts();
         const accountList = accounts.data ?? [];
-        
+
         // Find the current Gmail account in the list
         const currentAccount = currentGmailEmail
           ? accountList.find(
-              (account: any) =>
-                account.providerId === "google" &&
-                (account.email === currentGmailEmail ||
-                 account.accountEmail === currentGmailEmail)
-            )
+            (account: any) =>
+              account.providerId === "google" &&
+              (account.email === currentGmailEmail ||
+                account.accountEmail === currentGmailEmail)
+          )
           : null;
 
         const currentAccountInList = Boolean(currentAccount);
@@ -177,7 +177,7 @@ const App = () => {
     return () => {
       isActive = false;
     };
-  }, [session]);
+  }, [session, currentGmailEmail]);
 
   const shouldRender = useMemo(
     () =>
@@ -427,23 +427,22 @@ const App = () => {
       }
 
       const session = await authClient.getSession();
-      const currentGmailEmail = getCurrentGmailAccountEmail();
       const headers: Record<string, string> = {
         Authorization: `Bearer ${session?.data?.session?.token}`
       };
-      
+
       // Get accountId by matching email with listAccounts
       if (currentGmailEmail) {
         try {
           const accounts = await authClient.listAccounts();
           const accountList = accounts.data ?? [];
           const gmailAccount = accountList.find(
-            (account: any) => 
-              account.providerId === "google" && 
-              (account.email === currentGmailEmail || 
-               account.accountEmail === currentGmailEmail)
+            (account: any) =>
+              account.providerId === "google" &&
+              (account.email === currentGmailEmail ||
+                account.accountEmail === currentGmailEmail)
           );
-          
+
           if (gmailAccount?.accountId) {
             headers['X-Account-Id'] = gmailAccount.id;
           }
@@ -451,7 +450,7 @@ const App = () => {
           console.error("Failed to get accountId for email", error);
         }
       }
-      
+
       fetchEventSource(`${COMPOSITION_STREAM_URL}?${params.toString()}`, {
         headers,
         onmessage(event) {
@@ -469,7 +468,7 @@ const App = () => {
         }
       })
     },
-    [handleStreamEvent, closeEventSource],
+    [handleStreamEvent, closeEventSource, currentGmailEmail],
   );
 
   const handleSubmit = useCallback(
@@ -605,7 +604,7 @@ const App = () => {
         </div>
       );
     }
-
+   
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483646] flex justify-center px-4 pb-5">
         <div className="pointer-events-auto w-full max-w-xl rounded-[28px] bg-stone-900 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur flex flex-col">
@@ -618,7 +617,7 @@ const App = () => {
               </Button>
             </div>
           </div>
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4">           
             <p className="text-sm text-neutral-200 mb-4">
               Connect your Gmail account to start composing emails with AI.
             </p>
@@ -726,7 +725,7 @@ const App = () => {
             <div className="space-y-2 text-xs">
               {errorMessages.map((error, index) => error.type === 'error' && error.key === 'draft-limit-reached' ? (
                 <div
-                  key={`error-${index}`}                  
+                  key={`error-${index}`}
                 >
                   {
                     error.title && (
@@ -912,6 +911,30 @@ function useGmailThreadId() {
   return threadId;
 }
 
+function useCurrentGmailAccountEmail() {
+  const [email, setEmail] = useState(() => getCurrentGmailAccountEmail());
+
+  useEffect(() => {
+    const updateEmail = () => setEmail(getCurrentGmailAccountEmail());
+
+    window.addEventListener("hashchange", updateEmail);
+    window.addEventListener("popstate", updateEmail);
+
+    const observer = new MutationObserver(() => {
+      updateEmail();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      window.removeEventListener("hashchange", updateEmail);
+      window.removeEventListener("popstate", updateEmail);
+      observer.disconnect();
+    };
+  }, []);
+
+  return email;
+}
+
 function checkThreadView() {
   if (typeof window === "undefined") {
     return false;
@@ -951,9 +974,9 @@ function getCurrentGmailAccountEmail(): string | null {
   for (const selector of accountSelectors) {
     const element = document.querySelector(selector);
     if (element) {
-      const email = element.getAttribute('aria-label') || 
-                   element.getAttribute('data-email') ||
-                   element.textContent?.trim();
+      const email = element.getAttribute('aria-label') ||
+        element.getAttribute('data-email') ||
+        element.textContent?.trim();
       if (email && email.includes('@')) {
         // Extract email from text if it contains other text
         const emailMatch = email.match(/[\w.-]+@[\w.-]+\.\w+/);
@@ -983,8 +1006,8 @@ function getCurrentGmailAccountEmail(): string | null {
   }
 
   // Last resort: try to find any email-like text in the account area
-  const accountArea = document.querySelector('[role="banner"]') || 
-                     document.querySelector('[data-testid="account-switcher"]');
+  const accountArea = document.querySelector('[role="banner"]') ||
+    document.querySelector('[data-testid="account-switcher"]');
   if (accountArea) {
     const emailRegex = /[\w.-]+@[\w.-]+\.\w+/;
     const emailMatch = accountArea.textContent?.match(emailRegex);

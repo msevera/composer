@@ -39,8 +39,6 @@ export const authClient = createAuthClient({
         extensionId: process.env.PLASMO_PUBLIC_CHROME_EXTENSION_ID
       })
 
-      console.log("resp", resp.headers);
-
       return new Response(resp.body, {
         status: resp.status,
         statusText: resp.statusText,

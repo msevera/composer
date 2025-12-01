@@ -2,16 +2,13 @@ import "@/style.css";
 
 import { useEffect, useMemo, useState } from "react";
 import type { SVGProps } from "react";
-import { Loader2, LogIn, UserPlus, MessageSquare } from "lucide-react";
-import { toast, Toaster } from "sonner";
-
+import { Loader2, LogIn, UserPlus } from "lucide-react";
+import { Toaster } from "sonner";
 import { authClient } from "./lib/better-auth-client";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 
 type SessionData = ReturnType<typeof authClient.useSession>["data"];
 
-const WEBSITE_URL = process.env.PLASMO_PUBLIC_WEBSITE_URL || "http://localhost:3000";
+const WEBSITE_URL = process.env.PLASMO_PUBLIC_WEB_URL;
 const REQUIRED_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
