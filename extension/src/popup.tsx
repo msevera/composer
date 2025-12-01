@@ -57,34 +57,36 @@ function IndexPopup() {
   };
 
   return (
-    <div className="min-w-[380px] w-[420px] bg-white text-neutral-900 relative">
-      <Toaster position="top-center" />
-      <div className="px-8 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-lg font-semibold text-neutral-900">Composer AI</h1>
-              <p className="text-xs text-neutral-500">AI-powered reply composition</p>
+    <div className="min-w-[380px] w-[420px] relative overflow-hidden bg-gradient-to-br from-blue-50/40 via-white to-violet-50/40">
+      <div className="relative">
+        <Toaster position="top-center" />
+        <div className="px-8 py-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-lg font-semibold text-slate-900">Composer AI</h1>
+                <p className="text-xs text-slate-500">AI-Powered Email Assistant</p>
+              </div>
             </div>
+            {session?.user && (
+              <button
+                onClick={handleAvatarClick}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-white text-sm font-semibold shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/30 transition-all cursor-pointer"
+                title="Open Composer AI website"
+              >
+                <span className="text-sm font-semibold">
+                  {getUserInitials(session.user.name, session.user.email)}
+                </span>
+              </button>
+            )}
           </div>
-          {session?.user && (
-            <button
-              onClick={handleAvatarClick}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
-              title="Open Composer AI website"
-            >
-              <span className="text-sm font-semibold">
-                {getUserInitials(session.user.name, session.user.email)}
-              </span>
-            </button>
+          {error && (
+            <div className="mb-6 rounded-2xl border border-amber-200/50 bg-amber-50/80 backdrop-blur-sm px-4 py-3 text-sm text-amber-800 shadow-sm">
+              {error.message}
+            </div>
           )}
+          {content}
         </div>
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {error.message}
-          </div>
-        )}
-        {content}
       </div>
     </div>
   );
@@ -94,9 +96,9 @@ export default IndexPopup;
 
 function LoadingState() {
   return (
-    <div className="flex h-48 items-center justify-center gap-3 rounded-xl bg-white/60 px-6 py-8">
-      <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
-      <p className="text-sm font-medium text-neutral-600">Checking your session…</p>
+    <div className="flex h-48 items-center justify-center gap-3 rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm px-6 py-8 shadow-sm">
+      <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+      <p className="text-sm font-medium text-slate-600">Checking your session…</p>
     </div>
   );
 }
@@ -109,14 +111,14 @@ function AuthCtas() {
   return (
     <div className="flex gap-2 items-center justify-center">
       <button
-        className="flex-1 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 ring-1 ring-inset ring-slate-200"
+        className="flex-1 flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200/50 bg-white/80 backdrop-blur-sm px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50/80"
         onClick={() => openDashboardPath("/login")}
       >
         <LogIn className="mr-2 h-4 w-4" />
         Login
       </button>
       <button
-        className="flex-1 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+        className="flex-1 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500"
         onClick={() => openDashboardPath("/signup")}
       >
         <UserPlus className="mr-2 h-4 w-4 text-white" />
@@ -180,12 +182,12 @@ function AuthenticatedPanel({ session }: { session: SessionData }) {
   return (
     <div>
       {(!isCheckingScopes && !hasRequiredScopes) ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+        <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 text-sm text-slate-600 shadow-sm">
           <p className="mb-3 text-sm font-medium text-slate-800">
             Connect Gmail to see the assistant in your inbox.
           </p>
           <button
-            className="inline-flex w-full min-w-[180px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+            className="inline-flex w-full min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500"
             onClick={handleConnectGmail}
           >
             <GmailIcon className="h-4 w-4" />
@@ -194,7 +196,7 @@ function AuthenticatedPanel({ session }: { session: SessionData }) {
         </div>
       ) : (
         <button
-          className="inline-flex w-full min-w-[180px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+          className="inline-flex w-full min-w-[180px] items-center justify-center gap-2 rounded-2xl border border-slate-200/50 bg-white/80 backdrop-blur-sm px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50/80"
           onClick={handleOpenDashboard}
         >
           <span>Open dashboard</span>
