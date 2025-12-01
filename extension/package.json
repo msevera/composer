@@ -1,9 +1,9 @@
 {
   "name": "@better-auth/browser-extension-example",
-  "displayName": "Better auth browser extension",
+  "displayName": "Composer AI",
   "version": "0.0.1",
   "private": true,
-  "description": "A browser extension example for better-auth",
+  "description": "AI-Powered Email Assistant",
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",

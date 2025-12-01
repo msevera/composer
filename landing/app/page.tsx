@@ -32,10 +32,8 @@ export default function Home() {
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center gap-2"
           >
-            {/* <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-900/20">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div> */}
-            <span className="text-xl font-semibold text-white">Composer AI</span>
+            <img src="/logo.svg" alt="Composer AI" className="w-8 h-8" />
+            <span className="text-xl font-semibold text-[#00A4FF]">Composer AI</span>
           </motion.div>
 
           <motion.div
@@ -407,8 +405,9 @@ export default function Home() {
       {/* Footer */}
       <footer className="relative z-10 px-6 py-12 border-t border-gray-900">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">            
-            <span className="font-semibold text-white">Composer AI</span>
+          <div className="flex items-center gap-2">
+            <img src="/logo.svg" alt="Composer AI" className="w-8 h-8" />
+            <span className="font-semibold text-[#00A4FF]">Composer AI</span>
           </div>
           <div className="flex items-center gap-6">
             <a 
