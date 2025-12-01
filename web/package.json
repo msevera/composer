@@ -12,10 +12,10 @@
     "@apollo/client": "^3.8.10",
     "better-auth": "^1.4.3",
     "graphql": "^16.8.1",
+    "lucide-react": "^0.544.0",
     "next": "^14.0.4",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "lucide-react": "^0.544.0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.6",
@@ -25,7 +25,9 @@
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.0.4",
     "postcss": "^8.4.39",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.14",
+    "to-ico": "^1.1.5",
     "typescript": "^5.3.3"
   }
 }
