@@ -26,7 +26,7 @@ export const authClient = createAuthClient({
       const method = init?.method
       const headers = normalizeHeaders(init?.headers)
       const body = typeof init?.body === 'string' ? init.body : undefined
-
+      
       const resp = await sendToBackground({
         name: "fetch",
         body: {

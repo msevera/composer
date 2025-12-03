@@ -8,7 +8,7 @@ import { authClient } from "./lib/better-auth-client";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
 import { apolloClient } from "./lib/apollo-client";
-import { ApolloProvider, useQuery, useMutation } from "@apollo/client";
+import { ApolloProvider, useQuery, useMutation } from "@apollo/client/react";
 import { GET_CONVERSATION_STATE_QUERY, COPY_DRAFT_MUTATION } from "./lib/graphql/composition";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
