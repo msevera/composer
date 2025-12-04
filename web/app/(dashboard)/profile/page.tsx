@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { authClient } from '@/lib/better-auth-client';
 import { apolloClient } from '@/lib/apollo-client';
 import { GET_ME, DELETE_ACCOUNT } from '@/lib/graphql/user-queries';
-import { UserRound, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -47,8 +47,9 @@ export default function ProfilePage() {
       // Sign out and redirect after successful deletion
       await authClient.signOut();
       router.replace('/signup');
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to delete account');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete account';
+      setError(errorMessage);
     }
   };
 

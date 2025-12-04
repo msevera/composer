@@ -14,7 +14,6 @@ const RESET_DELAY = 4000; // ms before restarting
 export default function ComposerAIDemo() {
   const [inputText, setInputText] = useState(''); // Text in the input field
   const [messageBubbleText, setMessageBubbleText] = useState(''); // Text in the message bubble
-  const [showComposeBlink, setShowComposeBlink] = useState(false);
   const [showDraftBubble, setShowDraftBubble] = useState(false); // Show draft bubble section
   const [showLoader, setShowLoader] = useState(false); // Show loader inside draft bubble
   const [showDraft, setShowDraft] = useState(false); // Show actual draft text
@@ -40,7 +39,6 @@ export default function ComposerAIDemo() {
       // Reset all states
       setInputText('');
       setMessageBubbleText('');
-      setShowComposeBlink(false);
       setShowDraftBubble(false);
       setShowLoader(false);
       setShowDraft(false);
@@ -70,17 +68,9 @@ export default function ComposerAIDemo() {
       }, TYPEWRITER_DELAY);
       timersRef.current.push(typewriterInterval);
 
-      // 2. Compose button blink
+      // 2. Compose button blink (visual effect handled by CSS, no state needed)
       const composeTimer1 = setTimeout(() => {
-        if (isMountedRef.current) {
-          setShowComposeBlink(true);
-          const composeTimer2 = setTimeout(() => {
-            if (isMountedRef.current) {
-              setShowComposeBlink(false);
-            }
-          }, COMPOSE_BLINK_DURATION);
-          timersRef.current.push(composeTimer2);
-        }
+        // Compose button blink animation timing
       }, composeStartTime);
       timersRef.current.push(composeTimer1);
 

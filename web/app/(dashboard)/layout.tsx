@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { useQuery } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 import { authClient } from '@/lib/better-auth-client';
 import { apolloClient } from '@/lib/apollo-client';
 import { GET_ME } from '@/lib/graphql/user-queries';
-import { Home, Settings, UserRound } from 'lucide-react';
+import { Home } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 type NavItem = {

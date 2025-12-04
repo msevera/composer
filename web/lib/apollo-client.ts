@@ -1,21 +1,26 @@
-import { ApolloClient, InMemoryCache, HttpLink, from } from '@apollo/client';
-import { setContext } from '@apollo/client/link/context';
+import { ApolloClient, InMemoryCache, HttpLink, ApolloLink } from '@apollo/client';
+import { SetContextLink } from '@apollo/client/link/context';
 
 const httpLink = new HttpLink({
-  uri: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/graphql',
+  uri: process.env.NEXT_PUBLIC_API_URL,
   credentials: 'include',
 });
 
-const authLink = setContext((_, { headers }) => {
+const authLink = new SetContextLink(async (prevContext) => {
   return {
     headers: {
-      ...headers,
+      ...prevContext.headers,     
     },
   };
 });
 
+const link = ApolloLink.from([
+  authLink,
+  httpLink,
+]);
+
 export const apolloClient = new ApolloClient({
-  link: from([authLink, httpLink]),
+  link,
   cache: new InMemoryCache(),
 });
 

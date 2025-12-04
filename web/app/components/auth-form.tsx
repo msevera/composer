@@ -46,8 +46,9 @@ export function AuthForm({ mode }: AuthFormProps) {
         ]
       });
       // After OAuth redirect, user will be redirected to home page where session check happens
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setMessage(`Error: ${errorMessage}`);
       setIsSigningIn(false);
     }
   };

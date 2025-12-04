@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import Image from 'next/image';
 import { Zap, Sparkles, Shield, ArrowRight, CheckCircle2, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ComposerAIDemo from '@/components/ComposerAIDemo';
@@ -14,7 +15,7 @@ export default function Home() {
       <nav className="relative z-10 px-6 py-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/logo.svg" alt="Composer AI" className="w-8 h-8" />
+            <Image src="/logo.svg" alt="Composer AI" width={32} height={32} className="w-8 h-8" />
             <span className="text-xl font-semibold text-[#00A4FF]">Composer AI</span>
           </div>
 
@@ -304,7 +305,7 @@ export default function Home() {
       <footer className="relative z-10 px-6 py-12 border-t border-gray-900">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <img src="/logo.svg" alt="Composer AI" className="w-8 h-8" />
+            <Image src="/logo.svg" alt="Composer AI" width={32} height={32} className="w-8 h-8" />
             <span className="font-semibold text-[#00A4FF]">Composer AI</span>
           </div>
           <div className="flex items-center gap-6">

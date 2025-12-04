@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SVGProps } from 'react';
-import { useRouter } from 'next/navigation';
-import { useMutation, useQuery } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client/react';
 import { Check } from 'lucide-react';
 import { authClient } from '@/lib/better-auth-client';
 import { apolloClient } from '@/lib/apollo-client';
@@ -24,6 +23,19 @@ const EXTENSION_INSTALL_URL =
 const buttonBase =
   'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
 
+type User = {
+  id?: string;
+  email?: string;
+  name?: string;
+  sendProductUpdates?: boolean;
+  onboardingCompleted?: boolean;
+  maxDraftsAllowed?: number;
+  draftsUsed?: number;
+  lastSignIn?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 const GmailIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="52 42 88 66" aria-hidden="true" {...props}>
     <path fill="#4285f4" d="M58 108h14V74L52 59v43c0 3.32 2.69 6 6 6" />
@@ -36,7 +48,6 @@ const GmailIcon = (props: SVGProps<SVGSVGElement>) => (
 
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [message, setMessage] = useState<string>('');
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isCheckingGmail, setIsCheckingGmail] = useState(false);
@@ -49,7 +60,7 @@ export default function DashboardPage() {
     client: apolloClient,
   });
 
-  const user = userData?.me;
+  const user = (userData as { me?: User } | undefined)?.me;
 
   const [updateSendProductUpdates] = useMutation(UPDATE_SEND_PRODUCT_UPDATES, {
     client: apolloClient,
@@ -81,21 +92,24 @@ export default function DashboardPage() {
       setIsCheckingGmail(true);
       const accounts = await authClient.listAccounts();
       const allAccounts = accounts.data ?? [];
-      const gmailAccountsList = allAccounts.filter((account: any) => account.providerId === 'google');
-      const validGmailAccounts = gmailAccountsList.filter((account: any) =>
+      const gmailAccountsList = allAccounts.filter((account) => account.providerId === 'google');
+      const validGmailAccounts = gmailAccountsList.filter((account) =>
         requiredGmailScopes.every((scope) => account?.scopes?.includes?.(scope))
       );
       
-      setGmailAccounts(validGmailAccounts.map((account: any) => {
+      const mappedAccounts: Array<{ accountId: string; email?: string; scopes?: string[] }> = [];
+      for (const account of validGmailAccounts) {
         console.log('account', JSON.stringify(account, null, 2));
-        // Try multiple possible fields for email
-        const email = account.email || account.accountEmail || account.profile?.email || account.user?.email || null;
-        return {
-          accountId: account.accountId || account.id || account._id,
+        // Account has accountId as a required string property
+        // Email may be available but TypeScript doesn't know about it (added with @ts-ignore in API)
+        const email = (account as { email?: string }).email;
+        mappedAccounts.push({
+          accountId: account.accountId,
           email: email,
           scopes: account.scopes,
-        };
-      }));
+        });
+      }
+      setGmailAccounts(mappedAccounts);
       setIsGmailConnected(validGmailAccounts.length > 0);
     } finally {
       setIsCheckingGmail(false);
@@ -196,8 +210,9 @@ export default function DashboardPage() {
       // After OAuth redirect, refreshConnections will be called in checkSession
       // But we also refresh here in case the redirect doesn't trigger it
       await refreshConnections();
-    } catch (error: any) {
-      setMessage(error?.message ?? 'Failed to connect Gmail');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to connect Gmail';
+      setMessage(errorMessage);
     }
   }, [refreshConnections]);
 
@@ -207,9 +222,10 @@ export default function DashboardPage() {
       await authClient.unlinkAccount({ providerId: 'google', accountId });
       await refreshConnections();
       setMessage('Gmail account disconnected successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to disconnect Gmail account', error);
-      setMessage(error?.message ?? 'Failed to disconnect Gmail account');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to disconnect Gmail account';
+      setMessage(errorMessage);
     }
   };
 
@@ -220,8 +236,9 @@ export default function DashboardPage() {
       await setOnboardingCompleted({ variables: { onboardingCompleted: true } });
       await refetchUser();
       setMessage('Onboarding complete! 🎉');
-    } catch (error: any) {
-      setMessage(error?.message ?? 'Failed to update onboarding status');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update onboarding status';
+      setMessage(errorMessage);
     }
   }, [user, setOnboardingCompleted, refetchUser]);
 
@@ -238,7 +255,7 @@ export default function DashboardPage() {
       {
         id: 'email',
         title: 'Connect your email',
-        description: 'Add AI assistant to your Gmail account.',
+        description: 'Add AI email assistant to your Gmail account.',
         completed: isGmailConnected,
         action: (
           <div className="flex flex-wrap gap-3">
@@ -490,7 +507,6 @@ function IntegrationStatusCard({
   onDisconnect,
   connectLabel,
   disconnectLabel,
-  actionLabel,
   disableDisconnect,
 }: IntegrationStatusCardProps) {
   return (
