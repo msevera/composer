@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@apollo/client": "^4.0.9",
+    "@vercel/analytics": "^1.6.1",
     "better-auth": "^1.4.3",
     "graphql": "^16.12.0",
     "lucide-react": "^0.544.0",
