@@ -224,8 +224,8 @@ export default function Home() {
 
           <div className="grid md:grid-cols-3 gap-6">
             {[
-              { name: "Sarah Chen", role: "Product Manager", quote: "I used to spend 2 hours on emails daily. Now it's 20 minutes. Composer AI is genuinely life-changing.", avatar: "SC" },
-              { name: "Marcus Webb", role: "Startup Founder", quote: "The tone matching is incredible. My team can't tell which emails I wrote vs which Composer helped with.", avatar: "MW" },
+              { name: "Yurii A", role: "Business Analyst", quote: "I used to spend 2 hours on emails daily. Now it's 20 minutes. Composer AI is genuinely life-changing.", avatar: "YA" },
+              { name: "Severyn Rybchynskyy", role: "Project Manager", quote: "The tone matching is incredible. My team can't tell which emails I wrote vs which Composer helped with.", avatar: "SR" },
               { name: "Elena Rodriguez", role: "Sales Director", quote: "Response rate up 40% since using Composer. The AI knows exactly how to phrase follow-ups.", avatar: "ER" }
             ].map((testimonial, index) => (
               <div
