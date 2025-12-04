@@ -6,6 +6,7 @@ import { useQuery, useMutation } from '@apollo/client/react';
 import { authClient } from '@/lib/better-auth-client';
 import { apolloClient } from '@/lib/apollo-client';
 import { GET_ME, DELETE_ACCOUNT } from '@/lib/graphql/user-queries';
+import { User } from '@/lib/graphql/types';
 import { Trash2 } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -14,7 +15,7 @@ export default function ProfilePage() {
   const [error, setError] = useState<string>('');
   const modalRef = useRef<HTMLDivElement>(null);
 
-  const { data: userData, loading: userLoading } = useQuery(GET_ME, {
+  const { data: userData, loading: userLoading } = useQuery<{ me?: User }>(GET_ME, {
     client: apolloClient,
   });
 
@@ -95,7 +96,7 @@ export default function ProfilePage() {
             <button
               onClick={() => setShowDeleteConfirm(true)}
               disabled={isDeletingAccount}
-              className="inline-flex items-center gap-2 rounded-xl border border-red-300/50 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50/80 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              className="inline-flex items-center gap-2 rounded-xl border border-red-300/50 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50/80 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 className="h-4 w-4" />
               Delete Account

@@ -6,6 +6,7 @@ import { useQuery } from '@apollo/client/react';
 import { authClient } from '@/lib/better-auth-client';
 import { apolloClient } from '@/lib/apollo-client';
 import { GET_ME } from '@/lib/graphql/user-queries';
+import { User } from '@/lib/graphql/types';
 import { Home } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -28,7 +29,7 @@ export default function DashboardLayout({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const { data: userData, loading: userLoading } = useQuery(GET_ME, {
+  const { data: userData, loading: userLoading } = useQuery<{ me?: User }>(GET_ME, {
     client: apolloClient,
     skip: !isAuthenticated,
   });

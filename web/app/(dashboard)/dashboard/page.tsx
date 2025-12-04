@@ -11,6 +11,7 @@ import {
   UPDATE_SEND_PRODUCT_UPDATES,
   SET_ONBOARDING_COMPLETED,
 } from '@/lib/graphql/user-queries';
+import { User } from '@/lib/graphql/types';
 
 const EXTENSION_ORIGINS = process.env.NEXT_PUBLIC_CHROME_EXTENSION_ORIGINS;
 const extensionOrigins = (EXTENSION_ORIGINS || '')
@@ -22,19 +23,6 @@ const EXTENSION_INSTALL_URL =
 
 const buttonBase =
   'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
-
-type User = {
-  id?: string;
-  email?: string;
-  name?: string;
-  sendProductUpdates?: boolean;
-  onboardingCompleted?: boolean;
-  maxDraftsAllowed?: number;
-  draftsUsed?: number;
-  lastSignIn?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
 
 const GmailIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="52 42 88 66" aria-hidden="true" {...props}>
@@ -56,11 +44,11 @@ export default function DashboardPage() {
   const [isExtensionInstalled, setIsExtensionInstalled] = useState(false);
   const [isCheckingExtension, setIsCheckingExtension] = useState(true);
 
-  const { data: userData, loading: userLoading, refetch: refetchUser } = useQuery(GET_ME, {
+  const { data: userData, loading: userLoading, refetch: refetchUser } = useQuery<{ me?: User }>(GET_ME, {
     client: apolloClient,
   });
 
-  const user = (userData as { me?: User } | undefined)?.me;
+  const user = userData?.me;
 
   const [updateSendProductUpdates] = useMutation(UPDATE_SEND_PRODUCT_UPDATES, {
     client: apolloClient,
@@ -96,7 +84,7 @@ export default function DashboardPage() {
       const validGmailAccounts = gmailAccountsList.filter((account) =>
         requiredGmailScopes.every((scope) => account?.scopes?.includes?.(scope))
       );
-      
+
       const mappedAccounts: Array<{ accountId: string; email?: string; scopes?: string[] }> = [];
       for (const account of validGmailAccounts) {
         console.log('account', JSON.stringify(account, null, 2));
@@ -254,8 +242,8 @@ export default function DashboardPage() {
       },
       {
         id: 'email',
-        title: 'Connect your email',
-        description: 'Add AI email assistant to your Gmail account.',
+        title: 'Connect your Gmail',
+        description: 'Add Composer AI email assistant to your Gmail account.',
         completed: isGmailConnected,
         action: (
           <div className="flex flex-wrap gap-3">
@@ -264,7 +252,7 @@ export default function DashboardPage() {
               className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500"
             >
               <GmailIcon className="h-4 w-4" />
-              <span>Connect Gmail</span>
+              <span>Connect Account</span>
             </button>
           </div>
         ),
@@ -272,7 +260,7 @@ export default function DashboardPage() {
       {
         id: 'extension',
         title: 'Install Chrome extension',
-        description: 'Our Chrome extension agent will help you create responses in seconds not minutes.',
+        description: 'You’ll be able to use the Composer AI email assistant directly in Gmail.',
         completed: isExtensionStepCompleted,
         action: (
           <div className="flex flex-wrap items-center gap-3">
@@ -308,16 +296,16 @@ export default function DashboardPage() {
         description: 'Experience the full potential of Composer AI.',
         completed: Boolean(user?.onboardingCompleted),
         action: (
-            <button
-              disabled={!isGmailConnected || user?.onboardingCompleted || isUpdatingOnboarding}
-              onClick={handleCompleteOnboarding}
-              className={`inline-flex min-w-[160px] items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition ${user?.onboardingCompleted
-                ? 'bg-emerald-50/80 backdrop-blur-sm border border-emerald-200/50 text-emerald-600 cursor-not-allowed shadow-sm'
-                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none'
-                }`}
-            >
-              {'Ready to go!'}
-            </button>
+          <button
+            disabled={!isGmailConnected || user?.onboardingCompleted || isUpdatingOnboarding}
+            onClick={handleCompleteOnboarding}
+            className={`inline-flex min-w-[160px] items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition ${user?.onboardingCompleted
+              ? 'bg-emerald-50/80 backdrop-blur-sm border border-emerald-200/50 text-emerald-600 cursor-not-allowed shadow-sm'
+              : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none'
+              }`}
+          >
+            {'Ready to go!'}
+          </button>
         ),
       },
     ];
@@ -333,6 +321,7 @@ export default function DashboardPage() {
   ]);
 
   const shouldShowOnboarding = !user?.onboardingCompleted;
+  // const shouldShowOnboarding = true;
 
   const dashboardGreeting =
     user?.name || (user?.email ? user.email.split('@')[0] : 'there');
@@ -343,150 +332,150 @@ export default function DashboardPage() {
 
   return (
     <div>
-            <div className="mb-8 flex flex-col gap-2">
-              <h1 className="text-3xl md:text-4xl font-bold text-slate-900">Dashboard</h1>
-              <p className="text-base text-slate-500">Welcome back, {dashboardGreeting}</p>
-            </div>
+      <div className="mb-8 flex flex-col gap-2">
+        <h1 className="text-3xl md:text-4xl font-bold text-slate-900">Dashboard</h1>
+        <p className="text-base text-slate-500">Welcome back, {dashboardGreeting}</p>
+      </div>
 
-            {message && (
-              <div className="mt-4 mb-6 rounded-2xl border border-amber-200/50 bg-amber-50/80 backdrop-blur-sm px-4 py-3 text-sm text-amber-800 shadow-sm">
-                {message}
+      {message && (
+        <div className="mt-4 mb-6 rounded-2xl border border-amber-200/50 bg-amber-50/80 backdrop-blur-sm px-4 py-3 text-sm text-amber-800 shadow-sm">
+          {message}
+        </div>
+      )}
+
+      {shouldShowOnboarding ? (
+        <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 shadow-sm">
+          <OnboardingTimeline steps={onboardingSteps} />
+        </div>
+      ) : (
+        <div>
+          {/* Usage Statistics */}
+          <div className="mb-6 rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 shadow-sm">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                Usage Statistics
+              </p>
+              <p className="text-base font-semibold text-slate-900">
+                Email drafts generated: <span className="text-blue-600">{user?.draftsUsed ?? 0}</span>
+              </p>
+            </div>
+            {(user?.draftsUsed ?? 0) >= (user?.maxDraftsAllowed ?? 10) && (
+              <div className="mt-4 rounded-xl border border-amber-200/50 bg-amber-50/80 backdrop-blur-sm px-4 py-3 text-sm text-amber-800">
+                You&apos;ve reached your draft limit. Please reach out to{' '}
+                <a
+                  href="mailto:michael.svr@gmail.com"
+                  className="font-semibold underline hover:text-amber-900"
+                >
+                  michael.svr@gmail.com
+                </a>{' '}
+                to upgrade your account.
               </div>
             )}
+          </div>
 
-            {shouldShowOnboarding ? (
-              <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 shadow-sm">
-                <OnboardingTimeline steps={onboardingSteps} />
+          <div className="mt-6">
+            <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 shadow-sm">
+              <div className="mb-6">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                  Integrations
+                </p>              
               </div>
-            ) : (
-              <div>
-                {/* Usage Statistics */}
-                <div className="mb-6 rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 shadow-sm">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                      Usage Statistics
-                    </p>
-                    <p className="text-base font-semibold text-slate-900">
-                      Email drafts generated: <span className="text-blue-600">{user?.draftsUsed ?? 0}</span>
-                    </p>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Gmail Accounts</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        You can add Composer AI email assistant to multiple Gmail accounts.
+                      </p>
+                    </div>
+                    {
+                      gmailAccounts.length > 0 && (
+                        <button
+                          onClick={handleConnectGmail}
+                          disabled={isCheckingGmail}
+                          className={`${buttonBase} bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500 disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed`}
+                        >
+                          <GmailIcon className="h-4 w-4 mr-2" />
+                          Connect Account
+                        </button>
+                      )
+                    }
                   </div>
-                  {(user?.draftsUsed ?? 0) >= (user?.maxDraftsAllowed ?? 10) && (
-                    <div className="mt-4 rounded-xl border border-amber-200/50 bg-amber-50/80 backdrop-blur-sm px-4 py-3 text-sm text-amber-800 shadow-sm">
-                      You&apos;ve reached your draft limit. Please reach out to{' '}
-                      <a
-                        href="mailto:michael.svr@gmail.com"
-                        className="font-semibold underline hover:text-amber-900"
-                      >
-                        michael.svr@gmail.com
-                      </a>{' '}
-                      to upgrade your account.
+                  {isCheckingGmail ? (
+                    <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 text-sm text-slate-500">
+                      Checking accounts...
                     </div>
-                  )}
-                </div>
-
-                <div className="mt-6">
-                  <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 shadow-sm">
-                    <div className="mb-6">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
-                        Integrations
-                      </p>
-                      <p className="text-base text-slate-600">
-                        Manage your connected services
-                      </p>
+                  ) : gmailAccounts.length > 0 ? (
+                    <div className="space-y-3">
+                      {gmailAccounts.map((account) => (
+                        <div
+                          key={account.accountId}
+                          className="flex items-center justify-between rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500/10 to-violet-500/10 border border-blue-200/50">
+                              <GmailIcon className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">
+                                {account.email || 'Gmail Account'}
+                              </p>
+                              <p className="text-xs text-slate-500">Connected</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDisconnectGmail(account.accountId)}
+                            className={`${buttonBase} border border-slate-200/50 bg-white/80 backdrop-blur-sm text-slate-700 hover:bg-slate-50/80 transition-colors`}
+                          >
+                            Disconnect
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <div className="space-y-6">
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Gmail Accounts</p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          You can connect multiple Gmail accounts.
-                        </p>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 text-center">
+                      <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500/10 to-violet-500/10 border border-blue-200/50 w-fit mx-auto mb-3">
+                        <GmailIcon className="h-8 w-8 opacity-60" />
                       </div>
+                      <p className="text-sm font-semibold text-slate-900 mb-1">No Gmail accounts connected</p>
+                      <p className="text-xs text-slate-500 mb-4">
+                        Connect a Gmail account to get started with Composer AI email assistant.
+                      </p>
                       <button
                         onClick={handleConnectGmail}
-                        disabled={isCheckingGmail}
-                        className={`${buttonBase} bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500 disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed`}
+                        className={`${buttonBase} bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500`}
                       >
                         <GmailIcon className="h-4 w-4 mr-2" />
                         Connect Account
                       </button>
                     </div>
-                    {isCheckingGmail ? (
-                      <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 text-sm text-slate-500 shadow-sm">
-                        Checking accounts...
-                      </div>
-                    ) : gmailAccounts.length > 0 ? (
-                      <div className="space-y-3">
-                        {gmailAccounts.map((account) => (
-                          <div
-                            key={account.accountId}
-                            className="flex items-center justify-between rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 shadow-sm"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500/10 to-violet-500/10 border border-blue-200/50">
-                                <GmailIcon className="h-5 w-5" />
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">
-                                  {account.email || 'Gmail Account'}
-                                </p>
-                                <p className="text-xs text-slate-500">Connected</p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => handleDisconnectGmail(account.accountId)}
-                              className={`${buttonBase} border border-slate-200/50 bg-white/80 backdrop-blur-sm text-slate-700 hover:bg-slate-50/80 transition-colors`}
-                            >
-                              Disconnect
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-6 text-center">
-                        <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500/10 to-violet-500/10 border border-blue-200/50 w-fit mx-auto mb-3">
-                          <GmailIcon className="h-8 w-8 opacity-60" />
-                        </div>
-                        <p className="text-sm font-semibold text-slate-900 mb-1">No Gmail accounts connected</p>
-                        <p className="text-xs text-slate-500 mb-4">
-                          Connect a Gmail account to get started with Composer AI
-                        </p>
-                        <button
-                          onClick={handleConnectGmail}
-                          className={`${buttonBase} bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/30 hover:from-blue-500 hover:to-violet-500`}
-                        >
-                          <GmailIcon className="h-4 w-4 mr-2" />
-                          Connect Account
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 mb-4">Chrome Extension</p>
-                    <IntegrationStatusCard
-                      name="Chrome extension"
-                      description="Reply directly from Gmail."
-                      isConnected={isExtensionInstalled}
-                      isChecking={isCheckingExtension}
-                      onConnect={() => window.open(EXTENSION_INSTALL_URL, '_blank', 'noreferrer')}
-                      connectLabel="Install extension"
-                      disconnectLabel="Installed"
-                      actionLabel="Chrome Extension"
-                      disableDisconnect
-                    />
-                  </div>
-                    </div>
-                  </div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 mb-4">Chrome Extension</p>
+                  <IntegrationStatusCard
+                    description={isExtensionInstalled ? 'You can use the Composer AI email assistant directly in Gmail.' : 'You’ll be able to use the Composer AI email assistant directly in Gmail.'}
+                    isConnected={isExtensionInstalled}
+                    isChecking={isCheckingExtension}
+                    onConnect={() => window.open(EXTENSION_INSTALL_URL, '_blank', 'noreferrer')}
+                    connectLabel="Install extension"
+                    disconnectLabel="Installed"
+                    actionLabel="Chrome Extension"
+                    disableDisconnect
+                  />
                 </div>
               </div>
-            )}
+            </div>
           </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 type IntegrationStatusCardProps = {
-  name: string;
+  name?: string;
   description: string;
   isConnected: boolean;
   isChecking: boolean;
@@ -510,19 +499,23 @@ function IntegrationStatusCard({
   disableDisconnect,
 }: IntegrationStatusCardProps) {
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="flex h-full flex-col rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {name}
-          </p>
-          <p className="mt-1 text-sm text-slate-600">{description}</p>
+          {
+            name && (
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {name}
+              </p>
+            )
+          }          
+          <p className="mt-1 text-xs text-slate-600">{description}</p>
         </div>
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${isConnected ? 'bg-emerald-50/80 backdrop-blur-sm border border-emerald-200/50 text-emerald-700' : 'bg-slate-100/80 backdrop-blur-sm border border-slate-200/50 text-slate-500'
             }`}
         >
-          {isConnected ? 'Connected' : 'Not connected'}
+          {isConnected ? 'Installed' : 'Not installed'}
         </span>
       </div>
       <div className="mt-auto pt-4">
@@ -592,7 +585,7 @@ function OnboardingTimeline({ steps }: { steps: OnboardingStep[] }) {
               </div>
               <div
                 className={`flex-1 ${activeStepIndex === index
-                  ? 'rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4 shadow-sm'
+                  ? 'rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm p-4'
                   : 'py-2'
                   }`}
               >
