@@ -47,6 +47,40 @@ import { SegmentService } from './segment/segment.service';
           .map((origin) => origin.trim())
           .filter(Boolean);
 
+        // Shared function to track Gmail account connection
+        const trackGmailConnection = async (account: any) => {
+          // Track Gmail account connection if it's a Google account with required scopes
+          if (account && account.providerId === 'google' && account.userId) {
+            try {
+              // Get account document from the database to check scopes
+              const accountDoc = await connection.db.collection('accounts').findOne({ id: account.id });
+              const email = (accountDoc as any)?.email;
+
+              // Check if account has the required scopes
+              const scopeString = (accountDoc as any)?.scope || account.scope || '';
+              const scopes = scopeString.split(',').map((s: string) => s.trim()).filter(Boolean);
+
+              const requiredScopes = [
+                'https://www.googleapis.com/auth/calendar.readonly',
+                'https://www.googleapis.com/auth/gmail.readonly'
+              ];
+
+              const hasAllRequiredScopes = requiredScopes.every(scope => scopes.includes(scope));
+
+              // Only track if both required scopes are present
+              if (hasAllRequiredScopes) {
+                segmentService.track(account.userId.toString(), 'Gmail Account Connected', {
+                  email: email,
+                  accountId: account.accountId,
+                  providerId: account.providerId,
+                });
+              }
+            } catch (error) {
+              console.error('Failed to track Gmail connection:', error);
+            }
+          }
+        };
+
         const auth = betterAuth({
           plugins: [bearer(), listAccountsPlugin()],
           database: mongodbAdapter(connection.db as any, {
@@ -68,25 +102,11 @@ import { SegmentService } from './segment/segment.service';
                   const user = jose.decodeJwt(account.idToken)
                   return { data: { ...account, email: user.email } };
                 },
-                after: async (account) => {
-                  // Track Gmail account connection if it's a Google account
-                  if (account && account.providerId === 'google' && account.userId) {
-                    try {
-                      // Get email from the database since it's stored there
-                      const accountDoc = await connection.db.collection('accounts').findOne({ id: account.id });
-                      const email = (accountDoc as any)?.email;
-                      
-                      segmentService.track(account.userId.toString(), 'Gmail Account Connected', {
-                        email: email,
-                        accountId: account.accountId,
-                        providerId: account.providerId,
-                      });
-                    } catch (error) {
-                      console.error('Failed to track Gmail connection:', error);
-                    }
-                  }
-                },
+                after: trackGmailConnection,
               },
+              update: {
+                after: trackGmailConnection,
+              }
             },
             user: {
               create: {
