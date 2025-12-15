@@ -16,19 +16,34 @@ import { listAccountsPlugin } from './auth/list-accounts.plugin';
 import { AppController } from './app.controller';
 import { SegmentModule } from './segment/segment.module';
 import { SegmentService } from './segment/segment.service';
-
-
-
+import { EncryptionModule } from './encryption/encryption.module';
+import { EncryptionConfigService } from './encryption/encryption-config.service';
 @Module({
   controllers: [AppController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    EncryptionModule,
     MongooseModule.forRootAsync({
-      useFactory: () => ({
-        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/composerai',
-      }),
+      imports: [EncryptionModule],
+      inject: [EncryptionConfigService, ConfigService],
+      useFactory: (
+        encryptionConfig: EncryptionConfigService,
+        configService: ConfigService,
+      ) => {
+        const uri = configService.get<string>('API_MONGODB_URI');
+        const dbName = configService.get<string>('API_MONGODB_DB');
+        const autoEncryption = encryptionConfig.getAutoEncryptionOptions() as any;
+
+        console.log('autoEncryption', autoEncryption);
+
+        return {
+          uri,
+          dbName,
+          autoEncryption,
+        };
+      },
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
