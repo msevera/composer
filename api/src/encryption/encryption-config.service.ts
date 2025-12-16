@@ -101,27 +101,17 @@ export class EncryptionConfigService {
     this.logger.debug(`Encrypted collections: ${Object.keys(this.schemaMap).join(', ')}`);
   }
 
-  async getGcpAccessToken() {
-    const auth = new GoogleAuth({
-      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-    });
-
-    const client = await auth.getClient();
-    const { token } = await client.getAccessToken();
-
-    if (!token) {
-      throw new Error('Failed to obtain GCP access token from Application Default Credentials');
-    }
-
-    return token;
-  }
-
   getAutoEncryptionOptions() {
     // When compiled, __dirname is in api/dist/src/encryption
     // Go up 4 levels to reach project root, then into crypt_shared
-    // Alternatively, use process.cwd() (api directory) and go up one level
-    const cryptSharedPath = path.resolve(__dirname, '../../../crypt_shared/lib/mongo_crypt_v1.dylib');
-    this.logger.debug(`cryptSharedLibPath: ${cryptSharedPath}`);
+    // Detect platform and use appropriate library extension
+    const platform = process.platform;
+    const libExtension = platform === 'darwin' ? 'dylib' : 'so';
+    const cryptSharedPath = path.resolve(
+      __dirname,
+      `../../../crypt_shared/lib/mongo_crypt_v1.${libExtension}`,
+    );
+    this.logger.debug(`Platform: ${platform}, cryptSharedLibPath: ${cryptSharedPath}`);
 
     return {
       keyVaultNamespace: this.keyVaultNamespace,
