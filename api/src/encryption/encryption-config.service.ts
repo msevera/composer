@@ -1,26 +1,13 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuth } from 'google-auth-library';
 import { Binary } from 'mongodb';
 import * as path from 'path';
 
-interface KMSProviders {
-  gcp: {
-    // Empty config uses Application Default Credentials / Workload Identity
-    // for GCP KMS in the MongoDB driver.
-  };
-}
-
-interface EncryptedField {
-  path: string;
-  bsonType: string;
-  keyId: Binary;
-}
-
 @Injectable()
 export class EncryptionConfigService {
   private readonly logger = new Logger(EncryptionConfigService.name);
-  private kmsProviders!: KMSProviders;
+  private kmsProviders!: any;
   private schemaMap!: any;
   private keyVaultNamespace!: string;
   private dataKeyId!: Binary;
@@ -50,15 +37,15 @@ export class EncryptionConfigService {
     // Configure KMS providers synchronously so Mongoose sees them during initial connect.
     // The MongoDB driver will use ADC / Workload Identity for actual credentials.
     this.kmsProviders = {
-      gcp: {
+      gcp: (kmsEmail && kmsPk) ? {
         email: kmsEmail,
         privateKey: kmsPk,
-      },
+      } : {},
     };
 
     this.keyVaultNamespace = `${encryptionDbName}.__keyVault`;
 
-    this.schemaMap = {      
+    this.schemaMap = {
       [`${langgraphDbName}.checkpoints`]: {
         bsonType: "object",
         encryptMetadata: {

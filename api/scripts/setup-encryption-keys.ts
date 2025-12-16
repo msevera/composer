@@ -15,11 +15,17 @@ async function setupEncryptionKeys() {
   const kmsKeyName = process.env.KMS_KEY_NAME;
   const kmsEmail = process.env.KMS_EMAIL;
   const kmsPk = process.env.KMS_PK;
+  const kmsKeyVersion = process.env.KMS_KEY_VERSION;
 
   if (!mongoUri || !gcpProjectId) {
     console.error('❌ Missing required environment variables:');
     console.error('   - API_MONGODB_URI or LANGGRAPH_MONGODB_URI');
     console.error('   - GCP_PROJECT_ID');
+    process.exit(1);
+  }
+
+  if (!kmsKeyVersion) {
+    console.error('❌ KMS_KEY_VERSION is required');
     process.exit(1);
   }
 
@@ -36,10 +42,10 @@ async function setupEncryptionKeys() {
   console.log(`  KMS Key Name: ${kmsKeyName}\n`);
 
   const kmsProviders = {
-    gcp: {
+    gcp: (kmsEmail && kmsPk) ? {
       email: kmsEmail,
       privateKey: kmsPk,
-    },
+    } : {},
   };
 
   const keyVaultNamespace = `${encryptionDbName}.__keyVault`;
@@ -106,6 +112,7 @@ async function setupEncryptionKeys() {
         location: kmsLocation,
         keyRing: kmsKeyring,
         keyName: kmsKeyName,
+        keyVersion: kmsKeyVersion,
       },
       keyAltNames: ['composerAI-main-key'],
     });
