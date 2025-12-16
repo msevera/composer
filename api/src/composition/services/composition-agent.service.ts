@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
@@ -112,7 +112,7 @@ const AgentState = Annotation.Root({
 type AgentStateType = typeof AgentState.State;
 
 @Injectable()
-export class CompositionAgentService implements OnModuleDestroy {
+export class CompositionAgentService implements OnModuleDestroy, OnApplicationShutdown {
   private readonly logger = new Logger(CompositionAgentService.name);
   private readonly researchModel: ChatOpenAI;
   private readonly draftCreatorModel: ChatOpenAI;
@@ -121,6 +121,7 @@ export class CompositionAgentService implements OnModuleDestroy {
   private readonly agentGraph: CompiledStateGraph<any, any, any, any, any, any>;
   private readonly mongoClient: MongoClient;
   private readonly checkpointer: ExtendedMongoDBSaver;
+  private isClosing = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -156,7 +157,34 @@ export class CompositionAgentService implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    await this.mongoClient?.close();
+    // Backup cleanup in case OnApplicationShutdown doesn't fire (e.g., watch mode)
+    await this.closeMongoClient('module destroy');
+  }
+
+  async onApplicationShutdown(signal?: string) {
+    await this.closeMongoClient(`application shutdown (signal: ${signal || 'unknown'})`);
+  }
+
+  private async closeMongoClient(context?: string) {
+    if (this.isClosing) {
+      this.logger.debug(`MongoDB client already closing, skipping (context: ${context || 'unknown'})`);
+      return;
+    }
+
+    if (!this.mongoClient) {
+      return;
+    }
+
+    this.isClosing = true;
+    try {
+      this.logger.log(`Closing LangGraph MongoDB client (context: ${context || 'unknown'})...`);
+      await this.mongoClient.close();
+      this.logger.log('LangGraph MongoDB client closed successfully');
+    } catch (error) {
+      this.logger.error('Error closing LangGraph MongoDB client:', error);
+    } finally {
+      this.isClosing = false;
+    }
   }
 
   async composeStream(
