@@ -7,5 +7,10 @@ build
 *.log
 .DS_Store
 .plasmo
-crypt_shared
+# Ignore everything in crypt_shared except .so and .dylib files
+api/crypt_shared/**
+!api/crypt_shared/lib/
+api/crypt_shared/lib/*
+!api/crypt_shared/lib/*.so
+!api/crypt_shared/lib/*.dylib
 
