@@ -44,7 +44,7 @@ npm install
 
 3. Create `.env` file:
 ```env
-MONGODB_URI=mongodb://localhost:27017/composerai
+API_MONGODB_URI=mongodb://localhost:27017/composerai
 BETTER_AUTH_SECRET=your-secret-key-here
 BETTER_AUTH_URL=http://localhost:4000
 GOOGLE_CLIENT_ID=your-google-client-id

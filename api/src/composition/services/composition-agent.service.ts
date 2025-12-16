@@ -8,9 +8,10 @@ import { randomUUID } from 'crypto';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
 import { Annotation, CompiledStateGraph, END, MessagesAnnotation, START, StateGraph, writer as graphWriter } from '@langchain/langgraph';
-import { MongoDBSaver } from '@langchain/langgraph-checkpoint-mongodb';
 import { UserService } from 'src/user/user.service';
-import { MongoClient } from 'mongodb';
+import { Db, MongoClient } from 'mongodb';
+import { EncryptionConfigService } from '../../encryption/encryption-config.service';
+import { ExtendedMongoDBSaver } from './extended-mongodb-saver';
 
 
 export interface ComposeAgentOptions {
@@ -119,13 +120,14 @@ export class CompositionAgentService implements OnModuleDestroy {
   private readonly toolHandlers: Record<string, ToolHandler>;
   private readonly agentGraph: CompiledStateGraph<any, any, any, any, any, any>;
   private readonly mongoClient: MongoClient;
-  private readonly checkpointer: MongoDBSaver;
+  private readonly checkpointer: ExtendedMongoDBSaver;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly gmailService: GmailService,
     private readonly calendarService: CalendarService,
     private readonly userService: UserService,
+    private readonly encryptionConfigService: EncryptionConfigService,
   ) {
     this.researchModel = new ChatOpenAI({ model: 'gpt-4.1-mini' });
     this.draftCreatorModel = new ChatOpenAI({ model: 'gpt-4.1', temperature: 0 });
@@ -708,25 +710,66 @@ export class CompositionAgentService implements OnModuleDestroy {
     return baseId;
   }
 
-  private buildMongoCheckpointer(): { client: MongoClient; checkpointer: MongoDBSaver } {
-    const uri =
-      this.configService.get<string>('LANGGRAPH_MONGODB_URI');
-    const dbName =
-      this.configService.get<string>('LANGGRAPH_MONGODB_DB');
-    const client = new MongoClient(uri);
+  private async setupTTLIndexes(db: Db): Promise<void> {
+    try {
+      const retentionSeconds = this.configService.get<number>('CHECKPOINT_RETENTION_SECONDS');      
+      const ttlSeconds = retentionSeconds * 1;
+      
+
+      await db.collection('checkpoints').createIndex(
+        { createdAt: 1 },
+        {
+          expireAfterSeconds: ttlSeconds,
+          name: 'checkpoint_ttl',
+        },
+      );
+
+      await db.collection('checkpoint_writes').createIndex(
+        { createdAt: 1 },
+        {
+          expireAfterSeconds: ttlSeconds,
+          name: 'checkpoint_writes_ttl',
+        },
+      );
+
+      this.logger.log(`TTL indexes created with ${ttlSeconds} seconds retention`);
+    } catch (error: any) {
+      if (error?.codeName === 'IndexOptionsConflict') {
+        this.logger.debug('TTL indexes already exist');
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  private buildMongoCheckpointer(): { client: MongoClient; checkpointer: ExtendedMongoDBSaver } {
+    const uri = this.configService.get<string>('LANGGRAPH_MONGODB_URI');
+    const dbName = this.configService.get<string>('LANGGRAPH_MONGODB_DB');
+
+    const client = new MongoClient(uri, {
+      autoEncryption: this.encryptionConfigService.getAutoEncryptionOptions() as any,
+    });
+
     void client
       .connect()
-      .then(() => this.logger.debug('LangGraph checkpointer connected to MongoDB.'))
+      .then(async () => {
+        this.logger.debug('LangGraph checkpointer connected to MongoDB.');
+        await this.setupTTLIndexes(client.db(dbName));
+        this.logger.debug('TTL indexes configured for checkpoint collections.');
+      })
       .catch((error) =>
-        this.logger.error('LangGraph checkpointer failed to connect to MongoDB.', error instanceof Error ? error.stack : String(error)),
+        this.logger.error(
+          'LangGraph checkpointer connection/setup failed.',
+          error instanceof Error ? error.stack : String(error),
+        ),
       );
+
     return {
       client,
-      checkpointer: new MongoDBSaver({
+      checkpointer: new ExtendedMongoDBSaver({
         client,
         dbName,
       }),
     };
   }
 }
-
