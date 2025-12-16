@@ -8,10 +8,10 @@ import { randomUUID } from 'crypto';
 import { GmailService } from '../../gmail/gmail.service';
 import { CalendarService } from '../../gmail/calendar.service';
 import { Annotation, CompiledStateGraph, END, MessagesAnnotation, START, StateGraph, writer as graphWriter } from '@langchain/langgraph';
-import { MongoDBSaver } from '@langchain/langgraph-checkpoint-mongodb';
 import { UserService } from 'src/user/user.service';
 import { Db, MongoClient } from 'mongodb';
 import { EncryptionConfigService } from '../../encryption/encryption-config.service';
+import { ExtendedMongoDBSaver } from './extended-mongodb-saver';
 
 
 export interface ComposeAgentOptions {
@@ -120,7 +120,7 @@ export class CompositionAgentService implements OnModuleDestroy {
   private readonly toolHandlers: Record<string, ToolHandler>;
   private readonly agentGraph: CompiledStateGraph<any, any, any, any, any, any>;
   private readonly mongoClient: MongoClient;
-  private readonly checkpointer: MongoDBSaver;
+  private readonly checkpointer: ExtendedMongoDBSaver;
 
   constructor(
     private readonly configService: ConfigService,
@@ -712,8 +712,9 @@ export class CompositionAgentService implements OnModuleDestroy {
 
   private async setupTTLIndexes(db: Db): Promise<void> {
     try {
-      const retentionDays = this.configService.get<number>('CHECKPOINT_RETENTION_DAYS', 7);
-      const ttlSeconds = retentionDays * 24 * 60 * 60;
+      const retentionSeconds = this.configService.get<number>('CHECKPOINT_RETENTION_SECONDS');      
+      const ttlSeconds = retentionSeconds * 1;
+      
 
       await db.collection('checkpoints').createIndex(
         { createdAt: 1 },
@@ -731,7 +732,7 @@ export class CompositionAgentService implements OnModuleDestroy {
         },
       );
 
-      this.logger.log(`TTL indexes created with ${retentionDays} day retention`);
+      this.logger.log(`TTL indexes created with ${ttlSeconds} seconds retention`);
     } catch (error: any) {
       if (error?.codeName === 'IndexOptionsConflict') {
         this.logger.debug('TTL indexes already exist');
@@ -741,7 +742,7 @@ export class CompositionAgentService implements OnModuleDestroy {
     }
   }
 
-  private buildMongoCheckpointer(): { client: MongoClient; checkpointer: MongoDBSaver } {
+  private buildMongoCheckpointer(): { client: MongoClient; checkpointer: ExtendedMongoDBSaver } {
     const uri = this.configService.get<string>('LANGGRAPH_MONGODB_URI');
     const dbName = this.configService.get<string>('LANGGRAPH_MONGODB_DB');
 
@@ -765,7 +766,7 @@ export class CompositionAgentService implements OnModuleDestroy {
 
     return {
       client,
-      checkpointer: new MongoDBSaver({
+      checkpointer: new ExtendedMongoDBSaver({
         client,
         dbName,
       }),

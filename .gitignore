@@ -7,4 +7,5 @@ build
 *.log
 .DS_Store
 .plasmo
+crypt_shared
 

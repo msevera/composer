@@ -1,13 +1,13 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { GoogleAuth } from 'google-auth-library';
 import { Binary } from 'mongodb';
+import * as path from 'path';
 
 interface KMSProviders {
   gcp: {
-    projectId: string;
-    location: string;
-    keyRing: string;
-    keyName: string;
+    // Empty config uses Application Default Credentials / Workload Identity
+    // for GCP KMS in the MongoDB driver.
   };
 }
 
@@ -17,17 +17,11 @@ interface EncryptedField {
   keyId: Binary;
 }
 
-interface EncryptedFieldsMap {
-  [namespace: string]: {
-    fields: EncryptedField[];
-  };
-}
-
 @Injectable()
-export class EncryptionConfigService implements OnModuleInit {
+export class EncryptionConfigService {
   private readonly logger = new Logger(EncryptionConfigService.name);
   private kmsProviders!: KMSProviders;
-  private encryptedFieldsMap!: EncryptedFieldsMap;
+  private schemaMap!: any;
   private keyVaultNamespace!: string;
   private dataKeyId!: Binary;
 
@@ -36,12 +30,12 @@ export class EncryptionConfigService implements OnModuleInit {
     this.logger.log('Initializing MongoDB CSFLE configuration...');
 
     const gcpProjectId = this.configService.get<string>('GCP_PROJECT_ID');
-    const kmsLocation = this.configService.get<string>('KMS_LOCATION');
-    const kmsKeyring = this.configService.get<string>('KMS_KEYRING');
-    const kmsKeyName = this.configService.get<string>('KMS_KEY_NAME');
     const dataKeyIdStr = this.configService.get<string>('MONGODB_ENCRYPTION_KEY_ID');
     const apiDbName = this.configService.get<string>('API_MONGODB_DB');
     const langgraphDbName = this.configService.get<string>('LANGGRAPH_MONGODB_DB');
+    const encryptionDbName = this.configService.get<string>('ENCRYPTION_MONGODB_DB');
+    const kmsEmail = this.configService.get<string>('KMS_EMAIL');
+    const kmsPk = this.configService.get<string>('KMS_PK');
 
     if (!gcpProjectId) {
       throw new Error('GCP_PROJECT_ID is required for MongoDB encryption');
@@ -53,81 +47,108 @@ export class EncryptionConfigService implements OnModuleInit {
 
     this.dataKeyId = new Binary(Buffer.from(dataKeyIdStr, 'base64'), 4);
 
+    // Configure KMS providers synchronously so Mongoose sees them during initial connect.
+    // The MongoDB driver will use ADC / Workload Identity for actual credentials.
     this.kmsProviders = {
       gcp: {
-        projectId: gcpProjectId,
-        location: kmsLocation,
-        keyRing: kmsKeyring,
-        keyName: kmsKeyName,
+        email: kmsEmail,
+        privateKey: kmsPk,
       },
     };
 
-    this.keyVaultNamespace = 'encryption.__keyVault';
+    this.keyVaultNamespace = `${encryptionDbName}.__keyVault`;
 
-    this.encryptedFieldsMap = {
-      // LangGraph checkpoint data (may live in a different DB)
+    this.schemaMap = {      
       [`${langgraphDbName}.checkpoints`]: {
-        fields: [
-          {
-            path: 'checkpoint',
-            bsonType: 'binData',
-            keyId: this.dataKeyId,
+        bsonType: "object",
+        encryptMetadata: {
+          keyId: [this.dataKeyId],
+        },
+        properties: {
+          checkpoint: {
+            encrypt: {
+              bsonType: "binData",
+              algorithm: "AEAD_AES_256_CBC_HMAC_SHA_512-Random",
+            },
           },
-        ],
+        },
       },
       [`${langgraphDbName}.checkpoint_writes`]: {
-        fields: [
-          {
-            path: 'value',
-            bsonType: 'binData',
-            keyId: this.dataKeyId,
+        bsonType: "object",
+        encryptMetadata: {
+          keyId: [this.dataKeyId],
+        },
+        properties: {
+          value: {
+            encrypt: {
+              bsonType: "binData",
+              algorithm: "AEAD_AES_256_CBC_HMAC_SHA_512-Random",
+            },
           },
-        ],
+        },
       },
-      // Better Auth accounts data (lives in API DB)
       [`${apiDbName}.accounts`]: {
-        fields: [
-          {
-            path: 'accessToken',
-            bsonType: 'string',
-            keyId: this.dataKeyId,
+        bsonType: "object",
+        encryptMetadata: {
+          keyId: [this.dataKeyId],
+        },
+        properties: {
+          accessToken: {
+            encrypt: {
+              bsonType: "string",
+              algorithm: "AEAD_AES_256_CBC_HMAC_SHA_512-Random",
+            },
           },
-          {
-            path: 'refreshToken',
-            bsonType: 'string',
-            keyId: this.dataKeyId,
+          refreshToken: {
+            encrypt: {
+              bsonType: "string",
+              algorithm: "AEAD_AES_256_CBC_HMAC_SHA_512-Random",
+            },
           },
-        ],
+        },
       },
     };
 
     this.logger.log('MongoDB CSFLE configuration initialized');
     this.logger.debug(`Key Vault: ${this.keyVaultNamespace}`);
-    this.logger.debug(`Encrypted collections: ${Object.keys(this.encryptedFieldsMap).join(', ')}`);
+    this.logger.debug(`Encrypted collections: ${Object.keys(this.schemaMap).join(', ')}`);
   }
 
-  async onModuleInit() {
+  async getGcpAccessToken() {
+    const auth = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
 
-  }
+    const client = await auth.getClient();
+    const { token } = await client.getAccessToken();
 
-  getKMSProviders(): KMSProviders {
-    return this.kmsProviders;
-  }
+    if (!token) {
+      throw new Error('Failed to obtain GCP access token from Application Default Credentials');
+    }
 
-  getEncryptedFieldsMap(): EncryptedFieldsMap {
-    return this.encryptedFieldsMap;
-  }
-
-  getKeyVaultNamespace(): string {
-    return this.keyVaultNamespace;
+    return token;
   }
 
   getAutoEncryptionOptions() {
+    // When compiled, __dirname is in api/dist/src/encryption
+    // Go up 4 levels to reach project root, then into crypt_shared
+    // Alternatively, use process.cwd() (api directory) and go up one level
+    const cryptSharedPath = path.resolve(__dirname, '../../../crypt_shared/lib/mongo_crypt_v1.dylib');
+    this.logger.debug(`cryptSharedLibPath: ${cryptSharedPath}`);
+
     return {
       keyVaultNamespace: this.keyVaultNamespace,
       kmsProviders: this.kmsProviders,
-      encryptedFieldsMap: this.encryptedFieldsMap,
+      schemaMap: this.schemaMap,
       bypassAutoEncryption: false,
+      extraOptions: {
+        // Use the shared library instead of mongocryptd process
+        // The driver will look for it in node_modules/mongodb-client-encryption/lib/mongocryptd
+        // or you can specify a custom path
+        cryptSharedLibRequired: true,
+        // Path is relative to project root (go up 4 levels from api/dist/src/encryption to project root)
+        cryptSharedLibPath: cryptSharedPath,
+      },
     };
   }
 }

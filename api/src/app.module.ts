@@ -34,9 +34,7 @@ import { EncryptionConfigService } from './encryption/encryption-config.service'
       ) => {
         const uri = configService.get<string>('API_MONGODB_URI');
         const dbName = configService.get<string>('API_MONGODB_DB');
-        const autoEncryption = encryptionConfig.getAutoEncryptionOptions() as any;
-
-        console.log('autoEncryption', autoEncryption);
+        const autoEncryption = encryptionConfig.getAutoEncryptionOptions() as any;        
 
         return {
           uri,

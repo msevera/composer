@@ -2,27 +2,19 @@ import dotenv from 'dotenv';
 dotenv.config();
 import { ClientEncryption, MongoClient } from 'mongodb';
 
-interface KMSProviders {
-  gcp: {
-    projectId: string;
-    location: string;
-    keyRing: string;
-    keyName: string;
-  };
-}
-
 async function setupEncryptionKeys() {
   console.log('🔐 MongoDB CSFLE + GCP KMS Setup Script');
   console.log('========================================\n');
 
   // Load configuration
   const mongoUri = process.env.API_MONGODB_URI;
-  const apiDbName = process.env.API_MONGODB_DB;
   const encryptionDbName = process.env.ENCRYPTION_MONGODB_DB;
   const gcpProjectId = process.env.GCP_PROJECT_ID;
   const kmsLocation = process.env.KMS_LOCATION;
   const kmsKeyring = process.env.KMS_KEYRING;
   const kmsKeyName = process.env.KMS_KEY_NAME;
+  const kmsEmail = process.env.KMS_EMAIL;
+  const kmsPk = process.env.KMS_PK;
 
   if (!mongoUri || !gcpProjectId) {
     console.error('❌ Missing required environment variables:');
@@ -33,24 +25,20 @@ async function setupEncryptionKeys() {
 
   console.log('Configuration:');
   console.log(
-    `  API MongoDB URI: ${
-      mongoUri ? mongoUri.replace(/\/\/.*@/, '//<credentials>@') : '(not set)'
+    `  API MongoDB URI: ${mongoUri ? mongoUri.replace(/\/\/.*@/, '//<credentials>@') : '(not set)'
     }`,
   );
 
   console.log(`  GCP Project: ${gcpProjectId}`);
-  console.log(`  API DB Name: ${apiDbName}`);
   console.log(`  Encryption DB Name: ${encryptionDbName}`);
   console.log(`  KMS Location: ${kmsLocation}`);
   console.log(`  KMS Key Ring: ${kmsKeyring}`);
   console.log(`  KMS Key Name: ${kmsKeyName}\n`);
 
-  const kmsProviders: KMSProviders = {
+  const kmsProviders = {
     gcp: {
-      projectId: gcpProjectId,
-      location: kmsLocation,
-      keyRing: kmsKeyring,
-      keyName: kmsKeyName,
+      email: kmsEmail,
+      privateKey: kmsPk,
     },
   };
 
@@ -109,7 +97,8 @@ async function setupEncryptionKeys() {
     }
 
     console.log('Step 6: Creating Data Encryption Key (DEK)...');
-    console.log('   This DEK will be encrypted by your GCP KMS key...');
+    console.log('   This DEK will be encrypted by your GCP KMS key...', gcpProjectId, kmsLocation, kmsKeyring, kmsKeyName);
+
 
     const dataKeyId = await encryption.createDataKey('gcp', {
       masterKey: {
@@ -145,7 +134,6 @@ async function setupEncryptionKeys() {
     if (error?.code === 'PermissionDenied' || error?.message?.includes('permission')) {
       console.error('\n💡 Permission Issue Troubleshooting:');
       console.error('   1. Verify service account has cloudkms.cryptoKeyEncrypterDecrypter role');
-      console.error('   2. Check GOOGLE_APPLICATION_CREDENTIALS points to valid key file');
       console.error('   3. Ensure KMS API is enabled in your GCP project');
     }
 
