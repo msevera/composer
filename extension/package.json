@@ -5,8 +5,10 @@
   "private": true,
   "description": "AI-Powered Email Assistant",
   "scripts": {
-    "dev": "plasmo dev",
-    "build": "plasmo build",
+    "dev:chrome": "plasmo dev --taget=chrome-mv3 --env=.env.chrome.development",
+    "build:chrome": "plasmo build --taget=chrome-mv3 --env=.env.chrome.production",
+    "dev:firefox": "plasmo dev --target=firefox-mv2 --env=.env.firefox.development",
+    "build:firefox": "plasmo build --target=firefox-mv2 --env=.env.firefox.production -- --zip",
     "build:no-minify": "plasmo build --no-minify",
     "package": "plasmo package"
   },
@@ -44,8 +46,21 @@
     "typescript": "^5.9.2"
   },
   "manifest": {
+    "browser_specific_settings": {
+      "gecko": {
+        "id": "composer-ai@composer.ai",
+        "data_collection_permissions": {
+          "required": [
+            "websiteContent"
+          ]
+        }
+      }
+    },
+    "permissions": [
+      "$PLASMO_COOKIES_PERMISSIONS"
+    ],
     "host_permissions": [
-      "$PLASMO_PUBLIC_API_URL/*"
+      "$PLASMO_HOST_PERMISSIONS"
     ],
     "web_accessible_resources": [
       {
